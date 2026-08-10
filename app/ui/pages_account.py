@@ -146,12 +146,36 @@ def login_page() -> None:
 # ----------------------------------------------------------------------
 
 def _load_account_data(user_id: int):
+    """Return UI-ready data. Relationship counts are resolved inside
+    the session so nothing lazy-loads after it closes."""
     session = SessionLocal()
     try:
         favorites = FavoriteRepository(session).destinations_for(user_id)
-        trips = TripRepository(session).for_user(user_id)
+        # Detach favourites safely: the card only needs scalar columns.
+        for destination in favorites:
+            session.expunge(destination)
+
+        trips = [
+            {
+                "id": trip.id,
+                "title": trip.title,
+                "status": trip.status,
+                "item_count": len(trip.items),   # inside the session
+                "currency": trip.currency,
+            }
+            for trip in TripRepository(session).for_user(user_id)
+        ]
+
         notes_repo = NotificationRepository(session)
-        notes = notes_repo.for_user(user_id)
+        notes = [
+            {
+                "id": note.id,
+                "title": note.title,
+                "body": note.body,
+                "read": note.read_at is not None,
+            }
+            for note in notes_repo.for_user(user_id)
+        ]
         unread = notes_repo.unread_count(user_id)
         return favorites, trips, notes, unread
     finally:
@@ -249,17 +273,17 @@ def account_page() -> None:
                         with ui.row().classes(
                             "w-full items-center gap-3"
                         ):
-                            ui.icon("luggage")
-                            ui.label(trip.title).classes(
+                            ui.icon("sym_r_luggage")
+                            ui.label(trip["title"]).classes(
                                 "font-medium"
                             )
-                            ui.label(trip.status).classes(
+                            ui.label(trip["status"]).classes(
                                 "tv-badge"
                             )
                             ui.space()
                             ui.label(
-                                f"{len(trip.items)} items"
-                            ).classes("text-sm opacity-70")
+                                f"{trip['item_count']} items"
+                            ).classes("tv-mono text-xs tv-muted")
 
                 # ---- Notifications ----
                 ui.label(
@@ -274,26 +298,26 @@ def account_page() -> None:
                         "w-full items-center gap-2 py-1"
                     ):
                         ui.icon(
-                            "mark_email_read" if note.read_at
-                            else "mark_email_unread"
+                            "sym_r_mark_email_read" if note["read"]
+                            else "sym_r_mark_email_unread"
                         ).classes(
-                            "opacity-50" if note.read_at
+                            "opacity-50" if note["read"]
                             else "text-primary"
                         )
-                        ui.label(note.title).classes(
+                        ui.label(note["title"]).classes(
                             "text-sm"
-                            + (" opacity-60" if note.read_at else "")
+                            + (" opacity-60" if note["read"] else "")
                         )
                         ui.space()
-                        if not note.read_at:
+                        if not note["read"]:
                             async def mark(n=note) -> None:
                                 await asyncio.to_thread(
-                                    _mark_read, user["user_id"], n.id
+                                    _mark_read, user["user_id"], n["id"]
                                 )
                                 await refresh()
 
                             ui.button(on_click=mark).props(
-                                "dense flat icon=done"
+                                "dense flat icon=sym_r_done"
                             ).tooltip("Mark read")
 
         ui.timer(0.1, refresh, once=True)

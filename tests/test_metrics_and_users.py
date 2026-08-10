@@ -158,3 +158,32 @@ def test_admin_user_management(factory):
     assert refreshed.is_admin and not refreshed.is_active
     assert repo.set_admin(424242, True) is False
     session.close()
+
+
+def test_trip_item_counts_resolve_inside_session(factory):
+    """Regression: the account page read trip.items after the session
+    closed, raising DetachedInstanceError. Counts must be resolved
+    while the session is open."""
+    from sqlalchemy.orm import Session
+
+    user = _make_user(factory)
+    session = factory()
+    repo = TripRepository(session)
+    trip = repo.create(user.id, "Aegean loop")
+    repo.add_item(trip.id, "flight", "ATH → JTR")
+    repo.add_item(trip.id, "hotel", "Sea View")
+    session.commit()
+    session.close()
+
+    # Simulate the page loader: resolve everything, then close.
+    session = factory()
+    try:
+        rows = [
+            {"title": t.title, "item_count": len(t.items)}
+            for t in TripRepository(session).for_user(user.id)
+        ]
+    finally:
+        session.close()
+
+    # Safe to read after close because nothing lazy-loads.
+    assert rows == [{"title": "Aegean loop", "item_count": 2}]
