@@ -50,3 +50,4 @@ travel_env/
 vectorstore/
 venv/
 .agents/
+.nicegui/
