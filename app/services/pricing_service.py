@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-TripVerse Pricing Service
+Aevyra Pricing Service
 
 Purpose:
 - Central pricing engine

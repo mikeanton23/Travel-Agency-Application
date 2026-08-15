@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-TripVerse entry point.
+Aevyra entry point.
 
 Default: the v2 Travel Intelligence Platform UI.
-Set LEGACY_UI=true to load the original single-page UI instead —
+Set LEGACY_UI=true to load the original single-page UI instead --
 kept intact per the "never remove functionality" rule.
 """
 
@@ -25,14 +25,20 @@ if not _secret:
     import secrets
     _secret = secrets.token_urlsafe(32)
     print(
-        "WARNING: APP_SECRET_KEY is not set in .env — using an "
+        "WARNING: APP_SECRET_KEY is not set in .env -- using an "
         "ephemeral secret. Logins and theme preference will reset "
         "on every restart, and encrypted API-key storage is disabled."
     )
 
+_production = (
+    get_settings().app_env.strip().lower() == "production"
+)
+
 ui.run(
-    title="TripVerse — Travel Intelligence Platform",
+    title="Aevyra - Travel Intelligence Platform",
+    host="0.0.0.0",          # reachable from the reverse proxy
     port=int(os.getenv("PORT", "8086")),
-    show=False,  # avoid xdg-open noise on WSL/headless
+    show=False,              # no browser on a server / WSL
+    reload=not _production,  # never hot-reload in production
     storage_secret=_secret,
 )

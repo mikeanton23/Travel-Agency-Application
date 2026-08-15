@@ -19,6 +19,7 @@ import asyncio
 import logging
 import statistics
 import time
+from datetime import date
 from typing import Dict, Optional
 
 from app.services.cache_service import api_cache
@@ -92,22 +93,27 @@ class SignalsCollector:
                     if wait > 0:
                         await asyncio.sleep(wait)
                     self._climate_last_call = time.monotonic()
+                # ERA5 reanalysis (real past observations) on the
+                # archive endpoint — a separate, far more generous
+                # rate-limit pool than climate-api.
+                today = date.today()
+                start = date(today.year - 3, 1, 1).isoformat()
+                end = date(today.year - 1, 12, 31).isoformat()
                 try:
                     return await self._climate_http.arequest_json(
                         "GET",
-                        "https://climate-api.open-meteo.com/v1/climate",
+                        "https://archive-api.open-meteo.com/v1/archive",
                         params={
                             "latitude": lat, "longitude": lon,
-                            "start_date": "1991-01-01",
-                            "end_date": "2020-12-31",
-                            "models": "MRI_AGCM3_2_S",
+                            "start_date": start, "end_date": end,
                             "daily": "temperature_2m_max,"
                                      "precipitation_sum,"
                                      "sunshine_duration",
+                            "timezone": "UTC",
                         },
                     )
                 except ApiError as exc:
-                    logger.warning("Open-Meteo climate failed: %s", exc)
+                    logger.warning("Open-Meteo archive failed: %s", exc)
                     if exc.status_code == 429:
                         self._climate_backoff_until = (
                             time.monotonic() + self._CLIMATE_COOLDOWN_S

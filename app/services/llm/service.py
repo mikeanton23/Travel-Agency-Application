@@ -33,7 +33,7 @@ PROVIDERS: Dict[str, Type[LLMProvider]] = {
 DEFAULT_MODELS = {
     "openai": "gpt-4o-mini",
     "anthropic": "claude-sonnet-4-6",
-    "gemini": "gemini-2.0-flash",
+    "gemini": config.GEMINI_MODEL,
     "ollama": config.OLLAMA_MODEL,
 }
 

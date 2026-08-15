@@ -1,53 +1,52 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.so
-
-# Virtual environments
-travel_env/
-venv/
-.env/
-.env.*
-
-# IDE
-.vscode/
-.idea/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-*.log
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Streamlit
-.streamlit/secrets.toml
-
-# Model files
-models/
-embeddings/
-vectorstore/
-faiss_index/
-
-# Cache
-.cache/
-.pytest_cache/
-.mypy_cache/
-
-# Build
-build/
-dist/
-*.egg-info/
-
-# Local configuration
-config.local.py
 
 # API keys
+# Build
+# Cache
+# Database
+# IDE
+# Local configuration
+# Logs
+# Model files
+# OS files
+# Python
+# Streamlit
+# Virtual environments
+*.db
+*.egg-info/
+*.log
+*.pyc
+*.pyd
+*.pyo
+*.so
+*.sqlite
+*.sqlite3
+*.zip
+.DS_Store
+.cache/
 .env
+.env*.zip
+.env.*
+.env/
+.idea/
+.mypy_cache/
+.pytest_cache/
+.streamlit/secrets.toml
+.venv/
+.vscode/
+Thumbs.db
+__pycache__/
+build/
+changed_*/
+config.local.py
+deploy*/
+dist/
+embeddings/
+faiss_index/
+fix*/
+models/
+rename/
+testfix/
+travel_env/
+vectorstore/
+venv/
+.agents/

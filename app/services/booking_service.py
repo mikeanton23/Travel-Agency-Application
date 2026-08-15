@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-TripVerse Booking Service
+Aevyra Booking Service
 
 Purpose:
 - Ticket requirements

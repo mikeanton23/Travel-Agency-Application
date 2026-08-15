@@ -1,0 +1,72 @@
+# Render blueprint: free HTTPS URL, managed Postgres, no domain needed.
+#
+# 1. Push this repo to GitHub.
+# 2. https://render.com -> New -> Blueprint -> pick the repo.
+# 3. Fill the API keys it prompts for (they are marked sync:false).
+# 4. Deploy. You get https://<name>.onrender.com with a valid
+#    certificate; APP_BASE_URL is wired to it automatically.
+#
+# Note: the free web service sleeps after ~15 minutes idle and takes
+# about a minute to wake. That is fine for testing and for Google's
+# crawler, but upgrade to the paid tier before promoting the site.
+
+services:
+  - type: web
+    name: aevyra
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /robots.txt
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PORT
+        value: 8086
+      # Render injects the service's own https URL here.
+      - key: APP_BASE_URL
+        fromService:
+          type: web
+          name: aevyra
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: DB_URL
+        fromDatabase:
+          name: aevyra-db
+          property: connectionString
+      - key: APP_SECRET_KEY
+        generateValue: true
+      # --- fill these in the Render dashboard ---
+      - key: LITEAPI_KEY
+        sync: false
+      - key: GEOAPIFY_API_KEY
+        sync: false
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: TICKETMASTER_API_KEY
+        sync: false
+      - key: OPENROUTESERVICE_API_KEY
+        sync: false
+      - key: SALES_INBOX_EMAIL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+databases:
+  - name: aevyra-db
+    plan: free
+    postgresMajorVersion: "16"

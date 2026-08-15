@@ -432,7 +432,7 @@ def home_page():
     with ui.column().classes("page-shell gap-8"):
 
         with ui.element("div").classes("hero w-full"):
-            ui.label("TripVerse AI Travel OS").classes("kicker")
+            ui.label("Aevyra AI Travel OS").classes("kicker")
             ui.label("Simulate the trip before you choose it.").classes("hero-title")
             ui.label(
                 "Global discovery, country focus, AI Trip Twin, regret prediction, budget realism, "
@@ -729,7 +729,7 @@ def home_page():
                 columns = max(1, min(4, len(ranked_items)))
 
                 with ui.dialog() as dialog, ui.card().classes("plan-dialog w-[1180px] max-w-full"):
-                    ui.label("TripVerse Comparison Mode").classes("text-4xl font-black text-slate-900")
+                    ui.label("Aevyra Comparison Mode").classes("text-4xl font-black text-slate-900")
                     ui.label(
                         "Compare value, realism, hidden-gem potential, crowd risk, Trip Twin match, and final decision score."
                     ).classes("text-slate-500 mt-1")

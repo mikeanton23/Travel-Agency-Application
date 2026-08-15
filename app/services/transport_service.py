@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-TripVerse Transport Service
+Aevyra Transport Service
 
 Purpose:
 - Distance calculations

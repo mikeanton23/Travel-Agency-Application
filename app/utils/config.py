@@ -32,6 +32,7 @@ OLLAMA_HOST = _s.ollama_host
 OPENAI_API_KEY = _s.openai_api_key
 ANTHROPIC_API_KEY = _s.anthropic_api_key
 GEMINI_API_KEY = _s.gemini_api_key
+GEMINI_MODEL = _s.gemini_model
 
 # ==========================================================
 # API KEYS

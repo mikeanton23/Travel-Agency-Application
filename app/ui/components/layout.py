@@ -10,6 +10,7 @@ from app.ui.theme import apply_theme, theme_toggle
 
 NAV = [
     ("Explore", "/", "sym_r_flight_takeoff"),
+    ("Hotels", "/hotels", "sym_r_hotel"),
     ("AI Copilot", "/chat", "sym_r_forum"),
     ("My account", "/account", "sym_r_person"),
     ("Settings", "/settings", "sym_r_tune"),
@@ -49,7 +50,7 @@ def page_shell(title: str):
             "flat round icon=sym_r_menu"
         ).classes("lg:hidden")
         ui.icon("sym_r_explore").classes("text-2xl text-primary")
-        ui.label("TripVerse").classes(
+        ui.label("Aevyra").classes(
             "tv-display text-xl font-semibold"
         )
         ui.label(title).classes(

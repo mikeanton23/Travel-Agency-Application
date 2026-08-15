@@ -58,7 +58,10 @@ class HttpJsonClient:
     """
 
     retry: RetryPolicy = field(default_factory=RetryPolicy)
-    timeout: httpx.Timeout = DEFAULT_TIMEOUT
+    # Must be a factory: Python 3.12 rejects a mutable dataclass
+    # default outright, which breaks import on the production image.
+    timeout: httpx.Timeout = field(
+        default_factory=lambda: httpx.Timeout(15.0, connect=10.0))
     transport: Optional[httpx.AsyncBaseTransport] = None
 
     async def arequest_json(

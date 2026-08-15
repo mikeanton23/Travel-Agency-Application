@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Travel Intelligence Platform — v2 pages.
+Travel Intelligence Platform -- v2 pages.
 
 Routes:
     /                    Explore: NL search + filters + card grid
@@ -10,12 +10,13 @@ Routes:
     /settings            Encrypted API keys + validation
 
 Every number rendered here is real API/database data or an explicit
-"unavailable" state — nothing estimated.
+"unavailable" state -- nothing estimated.
 """
 
 from __future__ import annotations
 
 import asyncio
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from nicegui import ui
@@ -40,11 +41,28 @@ llm_service = LLMService(session_factory=SessionLocal)
 
 CONTINENTS = ["Any", "Europe", "Asia", "Africa", "North America",
               "South America", "Oceania"]
-INTEREST_OPTIONS = ["food", "history", "nature", "nightlife", "family",
-                    "adventure", "luxury", "hidden_gem", "beach"]
+INTEREST_OPTIONS = ["food", "history", "nature", "nightlife",
+                    "family", "adventure", "luxury", "hidden_gem",
+                    "beach", "wine", "museums", "shopping",
+                    "romantic", "wellness", "skiing", "diving",
+                    "hiking", "photography", "architecture",
+                    "nomad"]
+TRAVEL_STYLES = ["solo", "couple", "family", "friends",
+                 "business", "backpacking", "roadtrip",
+                 "city break", "island hopping"]
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
                "July", "August", "September", "October", "November",
                "December"]
+
+
+def _parse_iso(value):
+    """ISO date from a date input, or None."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _search_db(query, continent, max_budget):
@@ -86,7 +104,7 @@ def explore_page() -> None:
             with ui.column().classes(
                 "w-full p-8 sm:p-12 pb-6 gap-2 relative z-10"
             ):
-                ui.label("DEPARTURES · LIVE DATA BOARD").classes(
+                ui.label("DEPARTURES - LIVE DATA BOARD").classes(
                     "tv-eyebrow"
                 )
                 ui.label(
@@ -96,7 +114,7 @@ def explore_page() -> None:
                     "leading-tight"
                 )
                 ui.label(
-                    "Real prices, real weather, real places — scored "
+                    "Real prices, real weather, real places -- scored "
                     "transparently."
                 ).classes("opacity-85 text-sm sm:text-base")
                 with ui.row().classes(
@@ -114,10 +132,10 @@ def explore_page() -> None:
                         "icon=sym_r_travel_explore no-caps rounded"
                     )
             _ticker = (
-                "LIVE WEATHER · OPEN-METEO — REAL PRICES · NUMBEO — "
-                "FARES & HOTELS · AMADEUS — PLACES · GEOAPIFY — "
-                "EVENTS · TICKETMASTER — PHOTOS · PEXELS — "
-                "NOTHING ESTIMATED, EVER — "
+                "LIVE WEATHER - OPEN-METEO -- REAL PRICES - NUMBEO -- "
+                "FARES & HOTELS - AMADEUS -- PLACES - GEOAPIFY -- "
+                "EVENTS - TICKETMASTER -- PHOTOS - PEXELS -- "
+                "NOTHING ESTIMATED, EVER -- "
             )
             with ui.element("div").classes(
                 "tv-ticker w-full relative z-10"
@@ -129,22 +147,161 @@ def explore_page() -> None:
             with ui.column().classes(
                 "tv-glass p-4 gap-3 w-full sm:w-64 shrink-0"
             ):
-                ui.label("Filters").classes("font-semibold")
+                ui.label("Filters").classes(
+                    "tv-display text-lg font-semibold")
+
+                # ---- Where ----
+                ui.label("WHERE").classes("tv-eyebrow pt-1").style(
+                    "color: var(--tv-teal)")
                 continent_select = ui.select(
                     CONTINENTS, value="Any", label="Continent"
-                ).classes("w-full")
-                budget_slider = ui.slider(
-                    min=20, max=500, value=500, step=10
-                ).props("label-always").classes("w-full")
-                ui.label("Max listed cost / day (database value)") \
-                    .classes("text-xs opacity-60 -mt-2")
+                ).props("dense outlined").classes("w-full")
+                country_input = ui.input(
+                    label="Country contains",
+                ).props("dense outlined clearable").classes("w-full")
+                name_input = ui.input(
+                    label="Destination name contains",
+                ).props("dense outlined clearable").classes("w-full")
+
+                # ---- When ----
+                ui.label("WHEN").classes("tv-eyebrow pt-2").style(
+                    "color: var(--tv-teal)")
+                date_mode = ui.toggle(
+                    {"month": "By month", "dates": "Exact dates"},
+                    value="month",
+                ).props("dense no-caps").classes("w-full")
                 month_select = ui.select(
                     {i + 1: name for i, name in enumerate(MONTH_NAMES)},
-                    value=9, label="Travel month",
-                ).classes("w-full")
+                    value=date.today().month, label="Travel month",
+                ).props("dense outlined").classes("w-full")
+                start_input = ui.input(label="Start date").props(
+                    "dense outlined type=date").classes("w-full")
+                end_input = ui.input(label="End date").props(
+                    "dense outlined type=date").classes("w-full")
+                trip_note = ui.label("").classes(
+                    "tv-mono text-[10px] tv-muted")
+                start_input.visible = False
+                end_input.visible = False
+
+                def _sync_when() -> None:
+                    """Exact dates drive the month used for climate and
+                    scoring, so the two controls never disagree."""
+                    by_dates = date_mode.value == "dates"
+                    start_input.visible = by_dates
+                    end_input.visible = by_dates
+                    month_select.visible = not by_dates
+                    if not by_dates:
+                        trip_note.set_text("")
+                        return
+                    start = _parse_iso(start_input.value)
+                    end = _parse_iso(end_input.value)
+                    if start is None:
+                        trip_note.set_text("Pick a start date")
+                        return
+                    if end is None or end <= start:
+                        end = start + timedelta(days=3)
+                        end_input.set_value(end.isoformat())
+                    month_select.set_value(start.month)
+                    nights = (end - start).days
+                    trip_note.set_text(
+                        f"{nights} nights in "
+                        f"{MONTH_NAMES[start.month - 1]}")
+
+                date_mode.on_value_change(lambda _: _sync_when())
+                start_input.on_value_change(lambda _: _sync_when())
+                end_input.on_value_change(lambda _: _sync_when())
+
+                # ---- Budget ----
+                ui.label("BUDGET").classes("tv-eyebrow pt-2").style(
+                    "color: var(--tv-teal)")
+                with ui.row().classes("w-full gap-2 no-wrap"):
+                    budget_min = ui.number(
+                        label="From / day", value=None, min=0,
+                        placeholder="any",
+                    ).props("dense outlined").classes("flex-grow")
+                    budget_max = ui.number(
+                        label="To / day", value=None, min=0,
+                        placeholder="any",
+                    ).props("dense outlined").classes("flex-grow")
+                budget_currency = ui.select(
+                    ["EUR", "USD", "GBP", "CHF", "JPY", "AUD", "CAD"],
+                    value="EUR", label="Currency",
+                ).props("dense outlined").classes("w-full")
+                ui.label(
+                    "Your own numbers - no cap. Used to score budget "
+                    "match against real prices."
+                ).classes("text-[10px] tv-muted")
+
+                # ---- Taste ----
+                ui.label("TASTE").classes("tv-eyebrow pt-2").style(
+                    "color: var(--tv-teal)")
                 interests_select = ui.select(
-                    INTEREST_OPTIONS, multiple=True, label="Interests"
-                ).props("use-chips").classes("w-full")
+                    INTEREST_OPTIONS, multiple=True, label="Interests",
+                ).props("use-chips dense outlined").classes("w-full")
+                travel_style = ui.select(
+                    TRAVEL_STYLES, multiple=True, label="Trip style",
+                ).props("use-chips dense outlined").classes("w-full")
+                with ui.row().classes("w-full gap-2 no-wrap"):
+                    temp_min = ui.number(label="Min C", value=18).props(
+                        "dense outlined").classes("flex-grow")
+                    temp_max = ui.number(label="Max C", value=27).props(
+                        "dense outlined").classes("flex-grow")
+                rain_max = ui.number(
+                    label="Max rainy days / month", value=None,
+                    min=0, max=31, placeholder="any",
+                ).props("dense outlined").classes("w-full")
+                with_kids = ui.checkbox("Travelling with kids")
+                sort_select = ui.select(
+                    ["AI score", "Cost: low to high",
+                     "Cost: high to low", "Name: A to Z"],
+                    value="AI score", label="Sort by",
+                ).props("dense outlined").classes("w-full")
+
+                with ui.row().classes("w-full gap-2 pt-2"):
+                    ui.button("Apply",
+                              on_click=lambda: asyncio.create_task(
+                                  run_search())).props(
+                        "unelevated color=primary dense no-caps "
+                        "icon=sym_r_filter_alt").classes("flex-grow")
+                    ui.button(on_click=lambda: reset_filters()).props(
+                        "outline dense no-caps icon=sym_r_restart_alt"
+                    ).tooltip("Reset filters")
+
+                def reset_filters() -> None:
+                    continent_select.set_value("Any")
+                    country_input.set_value("")
+                    name_input.set_value("")
+                    date_mode.set_value("month")
+                    month_select.set_value(date.today().month)
+                    start_input.set_value("")
+                    end_input.set_value("")
+                    budget_min.set_value(None)
+                    budget_max.set_value(None)
+                    interests_select.set_value([])
+                    travel_style.set_value([])
+                    temp_min.set_value(18)
+                    temp_max.set_value(27)
+                    rain_max.set_value(None)
+                    with_kids.set_value(False)
+                    sort_select.set_value("AI score")
+                    _sync_when()
+                    asyncio.create_task(run_search())
+
+                # Dynamic: any change re-runs the search.
+                for widget in (continent_select, month_select,
+                               interests_select, travel_style,
+                               sort_select, with_kids, budget_currency):
+                    widget.on_value_change(
+                        lambda _: asyncio.create_task(run_search()))
+                for widget in (country_input, name_input, budget_min,
+                               budget_max, rain_max, temp_min,
+                               temp_max):
+                    widget.on("blur",
+                              lambda _: asyncio.create_task(
+                                  run_search()))
+
+                _sync_when()
+
                 parse_note = ui.label("").classes("tv-mono text-xs tv-muted")
 
             with ui.column().classes("flex-grow gap-3"):
@@ -167,14 +324,11 @@ def explore_page() -> None:
                 for _ in range(6):
                     skeleton_card()
 
-            text = nl_input.value.strip()
+            text = nl_input.value.strip() if nl_input.value else ""
             parsed = None
             if text:
                 from app.utils.settings import get_settings
                 available = llm_service.available_providers()
-                # NL_PARSE_PROVIDER in .env overrides; otherwise prefer
-                # Gemini (free tier) then paid providers. parse() falls
-                # back to the rule-based parser on any provider error.
                 preferred = get_settings().nl_parse_provider.strip()
                 if preferred and preferred in available:
                     provider = preferred
@@ -184,57 +338,121 @@ def explore_page() -> None:
                          if p in available), None,
                     )
                 parsed = await nl_search_parser.parse(
-                    text, provider=provider
-                )
+                    text, provider=provider)
+                # Natural language fills the controls, which then stay
+                # editable - the two never diverge silently.
                 if parsed.continent:
                     continent_select.set_value(parsed.continent)
                 if parsed.month:
                     month_select.set_value(parsed.month)
                 if parsed.interests:
                     interests_select.set_value(parsed.interests)
+                if parsed.budget_per_day and not budget_max.value:
+                    budget_max.set_value(parsed.budget_per_day)
+                if parsed.currency:
+                    budget_currency.set_value(parsed.currency)
+                if parsed.traveling_with_kids:
+                    with_kids.set_value(True)
                 parse_note.set_text(
-                    "Understood: "
-                    + ", ".join(filter(None, [
-                        f"≤{parsed.budget_per_day:.0f} "
-                        f"{parsed.currency or ''}/day"
-                        if parsed.budget_per_day else None,
+                    "Understood: " + ", ".join(filter(None, [
+                        (f"<={parsed.budget_per_day:.0f} "
+                         f"{parsed.currency or ''}/day"
+                         if parsed.budget_per_day else None),
                         parsed.continent,
                         "island" if parsed.wants_island else None,
                         "quiet" if parsed.wants_quiet else None,
                         *parsed.interests,
-                    ]))
-                )
+                    ])))
+
+            def _num(widget):
+                try:
+                    return (float(widget.value)
+                            if widget.value not in (None, "") else None)
+                except (TypeError, ValueError):
+                    return None
+
+            budget_low = _num(budget_min)
+            budget_high = _num(budget_max)
+            max_rain = _num(rain_max)
 
             destinations = await asyncio.to_thread(
-                _search_db, None, continent_select.value,
-                budget_slider.value,
+                _search_db, name_input.value or None,
+                continent_select.value, budget_high,
             )
+
+            # Filters the repository query cannot express.
+            country_text = (country_input.value or "").strip().lower()
+            styles = travel_style.value or []
+            chosen_interests = interests_select.value or []
+            filtered = []
+            for destination in destinations:
+                cost = destination.avg_cost_per_day
+                if budget_low is not None and cost is not None \
+                        and cost < budget_low:
+                    continue
+                if country_text and country_text not in \
+                        (destination.country or "").lower():
+                    continue
+                tags = [str(x).lower()
+                        for x in (getattr(destination, "tags", None)
+                                  or [])]
+                wanted = [w.lower() for w in
+                          list(chosen_interests) + list(styles)]
+                if wanted and tags and not any(
+                        any(w in tag or tag in w for tag in tags)
+                        for w in wanted):
+                    continue
+                months = getattr(destination, "best_months", None) or []
+                if months and month_select.value and \
+                        month_select.value not in months:
+                    continue
+                filtered.append(destination)
+
+            sort_by = sort_select.value
+            if sort_by == "Cost: low to high":
+                filtered.sort(
+                    key=lambda d: d.avg_cost_per_day or float("inf"))
+            elif sort_by == "Cost: high to low":
+                filtered.sort(
+                    key=lambda d: d.avg_cost_per_day or 0,
+                    reverse=True)
+            elif sort_by == "Name: A to Z":
+                filtered.sort(key=lambda d: (d.name or "").lower())
+            else:
+                filtered.sort(key=lambda d: d.ai_score or 0,
+                              reverse=True)
+
             results_grid.clear()
-            if not destinations:
+            if not filtered:
                 with results_grid:
                     ui.label(
-                        "No destinations match — adjust filters or seed "
-                        "the database."
-                    ).classes("opacity-70")
+                        "No destinations match these filters. Widen "
+                        "the budget, clear a filter, or seed more "
+                        "destinations - nothing is loosened silently."
+                    ).classes("tv-muted")
                 return
 
-            month = month_select.value or 9
+            month = month_select.value or date.today().month
             profile = UserProfile(
-                budget_per_day=(parsed.budget_per_day
-                                if parsed else None),
+                budget_per_day=budget_high or budget_low,
                 month=month,
-                interests=(parsed.interests if parsed
-                           else (interests_select.value or [])),
-                traveling_with_kids=bool(
-                    parsed and parsed.traveling_with_kids
-                ),
+                preferred_temp_c=(_num(temp_min) or 18.0,
+                                  _num(temp_max) or 27.0),
+                interests=(chosen_interests
+                           or (parsed.interests if parsed else [])),
+                traveling_with_kids=bool(with_kids.value),
             )
             with results_grid:
-                for destination in destinations:
-                    render_result(destination, profile, month)
+                ui.label(
+                    f"{len(filtered)} of {len(destinations)} "
+                    f"destinations match"
+                ).classes("tv-mono text-xs tv-muted col-span-full")
+                for destination in filtered:
+                    render_result(destination, profile, month,
+                                  max_rain)
 
         def render_result(destination, profile: UserProfile,
-                          month: int) -> None:
+                          month: int, max_rain=None) -> None:
             card_holder = ui.element("div")
             # Async loads merge into one state so a late score doesn't
             # wipe out the photo, and vice versa.
@@ -272,6 +490,16 @@ def explore_page() -> None:
                         destination.longitude or 0.0, month,
                     ),
                 )
+                # A rainy-days limit can only be honoured once the
+                # real climate figure arrives.
+                if max_rain is not None and climate and \
+                        climate.get("rain_days") is not None and \
+                        climate["rain_days"] > max_rain:
+                    try:
+                        card_holder.clear()
+                    except RuntimeError:
+                        pass
+                    return
                 state["image"] = image
                 state["badges"] = [cost_badge(costs),
                                    weather_badge(climate)]
@@ -368,7 +596,7 @@ def destination_page(destination_id: int) -> None:
                         ui.space()
                         _favorite_button(destination.id)
                     ui.label(
-                        f"{destination.country} · "
+                        f"{destination.country} - "
                         f"{destination.continent or ''}"
                     ).classes("text-white/90 relative z-10")
 
@@ -474,6 +702,14 @@ def chat_page() -> None:
 
 
 import app.ui.pages_account  # noqa: E402,F401  (registers routes)
+import app.ui.pages_hotels  # noqa: E402,F401  (registers routes)
+import app.ui.pages_staff  # noqa: E402,F401  (registers routes)
+from app.ui.seo_routes import (  # noqa: E402
+    register_payment_routes, register_seo_routes,
+)
+
+register_seo_routes()
+register_payment_routes()
 
 
 @ui.page("/settings")

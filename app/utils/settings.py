@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # Which LLM parses natural-language search; empty = auto
     # (gemini -> openai -> anthropic, first one configured).
     nl_parse_provider: str = ""
+    gemini_model: str = "gemini-3.6-flash"
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
@@ -61,11 +62,68 @@ class Settings(BaseSettings):
     openexchangerates_api_key: str = ""
     numbeo_api_key: str = ""
 
+    # --- Public base URL (canonical URLs, email links, sitemap) ---
+    app_base_url: str = "http://localhost:8086"
+    app_env: str = "development"
+    site_name: str = "Aevyra"
+
+    # --- Email (SMTP) ---
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "Aevyra"
+    smtp_use_tls: bool = True
+    sales_inbox_email: str = ""
+
+    # --- Payments (Stripe) ---
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+
+    # --- Hotel suppliers ---
+    # LiteAPI / Nuitee Connect: free sandbox key, instant
+    # signup, no card. The self-service option since Amadeus
+    # closed its developer portal on 17 July 2026.
+    liteapi_key: str = ""
+    liteapi_guest_nationality: str = "GB"
+    # Booking.com Demand API (Affiliate Partner approval required)
+    booking_affiliate_id: str = ""
+    booking_api_token: str = ""
+    booking_env: str = "sandbox"   # sandbox | production
+    hotelbeds_api_key: str = ""
+    hotelbeds_secret: str = ""
+    expedia_api_key: str = ""
+    expedia_api_secret: str = ""
+
+    # --- Analytics ---
+    analytics_provider: str = ""
+    analytics_id: str = ""
+
     # --- Reserved / future ---
     booking_api_key: str = ""
     viator_api_key: str = ""
     getyourguide_api_key: str = ""
     opentable_api_key: str = ""
+
+    @property
+    def resolved_db_url(self) -> str:
+        """Connection string, tolerant of hosting-platform formats.
+
+        Render/Fly/Heroku inject DATABASE_URL and still use the legacy
+        ``postgres://`` scheme, which SQLAlchemy 2 rejects.
+        """
+        import os
+
+        raw = (self.db_url or os.getenv("DATABASE_URL", "")).strip()
+        if raw.startswith("postgres://"):
+            raw = raw.replace("postgres://",
+                              "postgresql+psycopg2://", 1)
+        elif raw.startswith("postgresql://"):
+            raw = raw.replace("postgresql://",
+                              "postgresql+psycopg2://", 1)
+        return raw
 
     @property
     def amadeus_base_url(self) -> str:

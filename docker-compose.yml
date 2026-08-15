@@ -1,0 +1,62 @@
+# Production stack: Postgres + app + Caddy (automatic HTTPS).
+#
+#   1. Point your domain's A record at this server's IP.
+#   2. Put real values in .env (see .env.example) - especially
+#      APP_BASE_URL=https://yourdomain.com and APP_ENV=production.
+#   3. Set DOMAIN and ACME_EMAIL below or in .env.
+#   4. docker compose up -d
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically;
+# there is no manual certbot step.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aevyra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong password}
+      POSTGRES_DB: ${POSTGRES_DB:-aevyra}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aevyra}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Not published to the internet: only the app can reach it.
+    expose:
+      - "5432"
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_URL: postgresql://${POSTGRES_USER:-aevyra}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-aevyra}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8086"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set your domain, e.g. aevyra.example}
+      ACME_EMAIL: ${ACME_EMAIL:?set an email for Let's Encrypt}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

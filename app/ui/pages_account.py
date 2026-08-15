@@ -131,7 +131,7 @@ def login_page() -> None:
                             "display_name": user.display_name,
                             "is_admin": user.is_admin,
                         }
-                        ui.notify("Welcome to TripVerse!",
+                        ui.notify("Welcome to Aevyra!",
                                   type="positive")
                         ui.navigate.to("/account")
 

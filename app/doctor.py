@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-TripVerse setup doctor — run ``python3 -m app.doctor``.
+Aevyra setup doctor — run ``python3 -m app.doctor``.
 
 Checks, in order:
 1. .env presence and required values (DB_URL, APP_SECRET_KEY)

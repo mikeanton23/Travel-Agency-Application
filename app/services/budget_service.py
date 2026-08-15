@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-TripVerse Budget Engine
+Aevyra Budget Engine
 
 Responsibilities:
 - Aggregate pricing data
