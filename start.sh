@@ -1,13 +1,17 @@
 #!/bin/sh
-# Container entrypoint: apply migrations, then serve.
+# Container entrypoint: ensure schema, seed if needed, then serve.
+
+# Creates any missing tables from the models and stamps Alembic at
+# head. Safe and idempotent: it exits immediately when the schema is
+# already present.
+echo "Checking database schema..."
+python3 -u -m app.db.bootstrap || true
+
+# Normal migration path for subsequent schema changes.
 echo "Applying database migrations..."
 if ! alembic upgrade head; then
-    echo "WARNING: alembic upgrade failed - the app will still start,"
-    echo "but tables may be missing. Check DB_URL and the log above."
+    echo "WARNING: alembic upgrade reported a problem - see above."
 fi
-# Optional one-time data bootstrap for hosts without shell access.
-# Safe to leave enabled: it only acts when the table is empty.
-python3 -u -m app.db.bootstrap || true
 
 echo "Starting Aevyra on port ${PORT:-8086}..."
 exec python3 -u -m app.main
