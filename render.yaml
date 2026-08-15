@@ -20,7 +20,6 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
-    region: frankfurt
     branch: main
     healthCheckPath: /robots.txt
     autoDeploy: true
