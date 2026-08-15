@@ -99,3 +99,80 @@ def test_month_matching_handles_names_and_numbers():
     # No data, or data we cannot read, must not hide a destination.
     assert _month_matches([], 8)
     assert _month_matches(["whenever"], 8)
+
+
+COUNTRY_JSON = {"results": [
+    {"country": "Greece", "country_code": "gr", "lat": 39.0, "lon": 22.0},
+]}
+
+CITIES_JSON = {"features": [
+    {"properties": {"city": "Athens", "country": "Greece",
+                    "country_code": "gr", "lat": 37.98, "lon": 23.72,
+                    "timezone": {"name": "Europe/Athens"}}},
+    {"properties": {"city": "Thessaloniki", "country": "Greece",
+                    "country_code": "gr", "lat": 40.64, "lon": 22.94,
+                    "timezone": {"name": "Europe/Athens"}}},
+]}
+
+
+@pytest.mark.asyncio
+async def test_country_only_search_lists_cities(fresh_cache):
+    """Geocoding a country as a city returns nothing, which made a
+    country-only search look broken."""
+    def handler(request):
+        url = str(request.url)
+        if "type=country" in url:
+            return httpx.Response(200, json=COUNTRY_JSON)
+        if "/v2/places" in url:
+            # The colon arrives percent-encoded in the query string.
+            assert request.url.params["filter"] == "countrycode:gr"
+            return httpx.Response(200, json=CITIES_JSON)
+        return httpx.Response(200, json={"results": []})
+
+    found = await make(handler).browse_country("Greece")
+    assert [d.name for d in found] == ["Athens", "Thessaloniki"]
+    assert all(d.country == "Greece" for d in found)
+
+
+@pytest.mark.asyncio
+async def test_suggest_prefers_the_most_specific_signal(fresh_cache):
+    calls = []
+
+    def handler(request):
+        url = str(request.url)
+        calls.append(url)
+        if "Athens" in url:
+            return httpx.Response(200, json=GEO_JSON)
+        if "type=country" in url:
+            return httpx.Response(200, json=COUNTRY_JSON)
+        if "/v2/places" in url:
+            return httpx.Response(200, json=CITIES_JSON)
+        return httpx.Response(200, json={"results": []})
+
+    service = make(handler)
+    # A named place wins and the country browse is never reached.
+    found = await service.suggest(name="Athens", country="Greece")
+    assert found[0].name == "Athens"
+    assert not any("/v2/places" in c for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_suggest_falls_back_to_country(fresh_cache):
+    def handler(request):
+        url = str(request.url)
+        if "type=country" in url:
+            return httpx.Response(200, json=COUNTRY_JSON)
+        if "/v2/places" in url:
+            return httpx.Response(200, json=CITIES_JSON)
+        return httpx.Response(200, json={"results": []})
+
+    found = await make(handler).suggest(country="Greece")
+    assert [d.name for d in found] == ["Athens", "Thessaloniki"]
+
+
+@pytest.mark.asyncio
+async def test_suggest_with_nothing_returns_nothing(fresh_cache):
+    def handler(request):
+        return httpx.Response(200, json={"results": []})
+
+    assert await make(handler).suggest() == []

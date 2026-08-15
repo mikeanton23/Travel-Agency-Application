@@ -104,12 +104,99 @@ class DiscoveryService:
         return [d for d in (self._to_destination(r) for r in rows or [])
                 if d is not None]
 
+    async def country_code(self, country: str) -> Optional[str]:
+        """ISO2 code for a country name, via geocoding."""
+        if not self.configured or not country:
+            return None
+
+        @api_cache.cached("geoapify:country_code", ttl=DISCOVERY_TTL)
+        async def _lookup(name: str) -> Optional[str]:
+            try:
+                payload = await self.http.arequest_json(
+                    "GET", "https://api.geoapify.com/v1/geocode/search",
+                    params={"text": name, "type": "country", "limit": 1,
+                            "format": "json",
+                            "apiKey": config.GEOAPIFY_API_KEY},
+                )
+            except ApiError as exc:
+                logger.warning("Country lookup failed for %s: %s",
+                               name, exc)
+                return None
+            results = (payload or {}).get("results") or []
+            if not results:
+                return None
+            code = results[0].get("country_code")
+            return code.upper() if code else None
+
+        return await _lookup(country.strip())
+
     async def browse_country(
         self, country: str, limit: int = 12
     ) -> List[DiscoveredDestination]:
-        """Notable places within a country, for when the user picks a
-        country but names no city."""
-        return await self.search(f"cities in {country}", limit=limit)
+        """Cities within a country.
+
+        Geocoding "Greece" as a city returns nothing, which made a
+        country-only search look broken. This resolves the country to
+        its ISO code and then asks the Places API for populated places
+        inside it.
+        """
+        code = await self.country_code(country)
+        if not code:
+            return []
+
+        @api_cache.cached("geoapify:country_cities", ttl=DISCOVERY_TTL)
+        async def _cities(cc: str, n: int) -> Optional[List[Dict[str, Any]]]:
+            try:
+                payload = await self.http.arequest_json(
+                    "GET", "https://api.geoapify.com/v2/places",
+                    params={
+                        "categories": "populated_place.city",
+                        "filter": f"countrycode:{cc.lower()}",
+                        "limit": n,
+                        "apiKey": config.GEOAPIFY_API_KEY,
+                    },
+                )
+            except ApiError as exc:
+                logger.warning("City browse failed for %s: %s", cc, exc)
+                return None
+            rows = []
+            for feature in (payload or {}).get("features") or []:
+                props = feature.get("properties") or {}
+                rows.append({
+                    "city": props.get("city") or props.get("name"),
+                    "country": props.get("country"),
+                    "country_code": props.get("country_code"),
+                    "lat": props.get("lat"),
+                    "lon": props.get("lon"),
+                    "place_id": props.get("place_id"),
+                    "formatted": props.get("formatted"),
+                    "timezone": props.get("timezone") or {},
+                })
+            return rows
+
+        rows = await _cities(code, limit)
+        return [d for d in (self._to_destination(r) for r in rows or [])
+                if d is not None]
+
+    async def suggest(
+        self, name: str = "", country: str = "", text: str = "",
+        limit: int = 12,
+    ) -> List[DiscoveredDestination]:
+        """Best-effort discovery from whatever the user supplied.
+
+        Tries the most specific signal first: an explicit place name,
+        then free text, then all the cities of a named country.
+        """
+        for query in (name.strip(), text.strip()):
+            if query:
+                found = await self.search(query, country=country or None,
+                                          limit=limit)
+                if found:
+                    return found
+        if country.strip():
+            return await self.browse_country(country.strip(),
+                                             limit=limit)
+        return []
 
     @staticmethod
     def _to_destination(

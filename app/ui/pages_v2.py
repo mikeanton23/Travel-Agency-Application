@@ -217,22 +217,18 @@ def explore_page() -> None:
                 # ---- Budget ----
                 ui.label("BUDGET").classes("tv-eyebrow pt-2").style(
                     "color: var(--tv-teal)")
-                with ui.row().classes("w-full gap-2 no-wrap"):
-                    budget_min = ui.number(
-                        label="From / day", value=None, min=0,
-                        placeholder="any",
-                    ).props("dense outlined").classes("flex-grow")
-                    budget_max = ui.number(
-                        label="To / day", value=None, min=0,
-                        placeholder="any",
-                    ).props("dense outlined").classes("flex-grow")
+                budget_max = ui.number(
+                    label="Max per day", value=None, min=0,
+                    placeholder="any amount",
+                ).props("dense outlined").classes("w-full")
                 budget_currency = ui.select(
                     ["EUR", "USD", "GBP", "CHF", "JPY", "AUD", "CAD"],
                     value="EUR", label="Currency",
                 ).props("dense outlined").classes("w-full")
                 ui.label(
-                    "Your own numbers - no cap. Used to score budget "
-                    "match against real prices."
+                    "One number, your own cap. Used to filter listed "
+                    "costs and to score budget match against real "
+                    "prices."
                 ).classes("text-[10px] tv-muted")
 
                 # ---- Taste ----
@@ -278,7 +274,6 @@ def explore_page() -> None:
                     month_select.set_value(date.today().month)
                     start_input.set_value("")
                     end_input.set_value("")
-                    budget_min.set_value(None)
                     budget_max.set_value(None)
                     interests_select.set_value([])
                     travel_style.set_value([])
@@ -296,7 +291,7 @@ def explore_page() -> None:
                                sort_select, with_kids, budget_currency):
                     widget.on_value_change(
                         lambda _: asyncio.create_task(run_search()))
-                for widget in (country_input, name_input, budget_min,
+                for widget in (country_input, name_input,
                                budget_max, rain_max, temp_min,
                                temp_max):
                     widget.on("blur",
@@ -374,7 +369,6 @@ def explore_page() -> None:
                 except (TypeError, ValueError):
                     return None
 
-            budget_low = _num(budget_min)
             budget_high = _num(budget_max)
             max_rain = _num(rain_max)
 
@@ -389,10 +383,6 @@ def explore_page() -> None:
             chosen_interests = interests_select.value or []
             filtered = []
             for destination in destinations:
-                cost = destination.avg_cost_per_day
-                if budget_low is not None and cost is not None \
-                        and cost < budget_low:
-                    continue
                 if country_text and country_text not in \
                         (destination.country or "").lower():
                     continue
@@ -439,17 +429,12 @@ def explore_page() -> None:
             # cost or score - the cards say so.
             discovered = []
             if not filtered:
-                probe = " ".join(p for p in (
-                    name_input.value or "",
-                    country_input.value or "",
-                    text if not (name_input.value
-                                 or country_input.value) else "",
-                ) if p).strip()
-                if not probe and continent_select.value != "Any":
-                    probe = continent_select.value
-                if probe:
-                    discovered = await discovery_service.search(
-                        probe, limit=12)
+                discovered = await discovery_service.suggest(
+                    name=name_input.value or "",
+                    country=country_input.value or "",
+                    text=text,
+                    limit=12,
+                )
 
             if not filtered and not discovered:
                 with results_grid:
@@ -463,7 +448,7 @@ def explore_page() -> None:
 
             month = month_select.value or date.today().month
             profile = UserProfile(
-                budget_per_day=budget_high or budget_low,
+                budget_per_day=budget_high,
                 month=month,
                 preferred_temp_c=(_num(temp_min) or 18.0,
                                   _num(temp_max) or 27.0),
