@@ -16,6 +16,7 @@ implying they were curated.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -30,6 +31,44 @@ DISCOVERY_TTL = 7 * 86400
 
 # Geoapify result types worth offering as a destination.
 PLACE_TYPES = ("city", "county", "state", "country")
+
+
+# Reference geography only: which countries belong to which continent.
+# No facts about the places themselves live here - every name, photo,
+# coordinate and figure still comes from a live API. The list is
+# deliberately broad so a continent search is not dominated by one
+# country.
+CONTINENT_COUNTRIES = {
+    "Europe": [
+        "Greece", "Italy", "Spain", "France", "Portugal", "Croatia",
+        "Netherlands", "Austria", "Czechia", "Poland", "Norway",
+        "Sweden", "Ireland", "Switzerland", "Hungary", "Denmark",
+    ],
+    "Asia": [
+        "Japan", "Thailand", "Vietnam", "Indonesia", "India",
+        "South Korea", "Malaysia", "Philippines", "Sri Lanka",
+        "Nepal", "Georgia", "Turkey", "United Arab Emirates",
+        "Jordan", "Uzbekistan", "Taiwan",
+    ],
+    "Africa": [
+        "Morocco", "Egypt", "South Africa", "Kenya", "Tanzania",
+        "Namibia", "Botswana", "Tunisia", "Senegal", "Ghana",
+        "Rwanda", "Ethiopia", "Mauritius", "Cape Verde",
+    ],
+    "North America": [
+        "Mexico", "United States", "Canada", "Costa Rica", "Panama",
+        "Guatemala", "Cuba", "Jamaica", "Dominican Republic",
+        "Belize", "Bahamas",
+    ],
+    "South America": [
+        "Brazil", "Argentina", "Chile", "Peru", "Colombia",
+        "Ecuador", "Uruguay", "Bolivia", "Paraguay",
+    ],
+    "Oceania": [
+        "New Zealand", "Australia", "Fiji", "Samoa", "Vanuatu",
+        "Papua New Guinea", "Tonga",
+    ],
+}
 
 CONTINENT_BY_CODE = {
     "AF": "Africa", "AN": "Antarctica", "AS": "Asia", "EU": "Europe",
@@ -255,25 +294,102 @@ class DiscoveryService:
         return [d for d in (self._to_destination(r) for r in rows or [])
                 if d is not None]
 
+    async def browse_continent(
+        self, continent: str, limit: int = 24, offset: int = 0,
+    ) -> List[DiscoveredDestination]:
+        """Cities from across a continent.
+
+        Countries are queried in parallel and merged round-robin so
+        the results are spread across the continent instead of being
+        filled by whichever country answered first.
+        """
+        countries = CONTINENT_COUNTRIES.get(continent.strip().title())
+        if not countries:
+            return []
+
+        # Rotate the starting country with the offset so "show more"
+        # reaches deeper into the continent rather than repeating. The
+        # stride is span+1 so a page never lands back on the same slice
+        # when the list length happens to be a multiple of the span.
+        span = 8
+        page = offset // max(1, limit)
+        start = page * (span + 1)
+        selected = [countries[(start + i) % len(countries)]
+                    for i in range(span)]
+
+        per_country = max(2, limit // span + 1)
+        batches = await asyncio.gather(*[
+            self.browse_country(name, limit=per_country)
+            for name in selected
+        ], return_exceptions=True)
+
+        lists = [b for b in batches if isinstance(b, list)]
+        merged: List[DiscoveredDestination] = []
+        seen = set()
+        for index in range(per_country):
+            for batch in lists:
+                if index >= len(batch):
+                    continue
+                place = batch[index]
+                key = (place.name or "").lower(), place.country
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(place)
+                if len(merged) >= limit:
+                    return merged
+        return merged
+
     async def suggest(
         self, name: str = "", country: str = "", text: str = "",
-        limit: int = 12,
+        continent: str = "", limit: int = 24, offset: int = 0,
     ) -> List[DiscoveredDestination]:
         """Best-effort discovery from whatever the user supplied.
 
-        Tries the most specific signal first: an explicit place name,
-        then free text, then all the cities of a named country.
+        Most specific signal first: an explicit place name, then free
+        text, then a named country, and finally the whole continent so
+        a search with no place at all still returns somewhere real.
         """
         for query in (name.strip(), text.strip()):
             if query:
-                found = await self.search(query, country=country or None,
-                                          limit=limit)
+                found = await self.search(
+                    query, country=country or None, limit=limit)
                 if found:
                     return found
         if country.strip():
             return await self.browse_country(country.strip(),
                                              limit=limit)
-        return []
+        if continent.strip() and continent.strip().lower() != "any":
+            return await self.browse_continent(
+                continent.strip(), limit=limit, offset=offset)
+        # Nothing was specified at all: show a spread of the world.
+        return await self.browse_world(limit=limit, offset=offset)
+
+    async def browse_world(
+        self, limit: int = 24, offset: int = 0,
+    ) -> List[DiscoveredDestination]:
+        """A spread across every continent, for an empty search."""
+        continents = list(CONTINENT_COUNTRIES)
+        per_continent = max(2, limit // len(continents) + 1)
+        batches = await asyncio.gather(*[
+            self.browse_continent(name, limit=per_continent,
+                                  offset=offset)
+            for name in continents
+        ], return_exceptions=True)
+        lists = [b for b in batches if isinstance(b, list)]
+        merged: List[DiscoveredDestination] = []
+        seen = set()
+        for index in range(per_continent):
+            for batch in lists:
+                if index < len(batch):
+                    place = batch[index]
+                    key = (place.name or "").lower(), place.country
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(place)
+                        if len(merged) >= limit:
+                            return merged
+        return merged
 
     @staticmethod
     def _to_destination(

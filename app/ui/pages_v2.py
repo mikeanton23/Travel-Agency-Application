@@ -259,7 +259,7 @@ def explore_page() -> None:
                 with ui.row().classes("w-full gap-2 pt-2"):
                     ui.button("Apply",
                               on_click=lambda: asyncio.create_task(
-                                  run_search())).props(
+                                  run_search(reset_offset=True))).props(
                         "unelevated color=primary dense no-caps "
                         "icon=sym_r_filter_alt").classes("flex-grow")
                     ui.button(on_click=lambda: reset_filters()).props(
@@ -290,13 +290,14 @@ def explore_page() -> None:
                                interests_select, travel_style,
                                sort_select, with_kids, budget_currency):
                     widget.on_value_change(
-                        lambda _: asyncio.create_task(run_search()))
+                        lambda _: asyncio.create_task(
+                            run_search(reset_offset=True)))
                 for widget in (country_input, name_input,
                                budget_max, rain_max, temp_min,
                                temp_max):
                     widget.on("blur",
                               lambda _: asyncio.create_task(
-                                  run_search()))
+                                  run_search(reset_offset=True)))
 
                 _sync_when()
 
@@ -316,7 +317,15 @@ def explore_page() -> None:
                     "xl:grid-cols-3 gap-4 w-full"
                 )
 
-        async def run_search() -> None:
+        discovery_state: Dict[str, int] = {"offset": 0}
+
+        async def show_more() -> None:
+            discovery_state["offset"] += 24
+            await run_search()
+
+        async def run_search(reset_offset: bool = False) -> None:
+            if reset_offset:
+                discovery_state["offset"] = 0
             results_grid.clear()
             with results_grid:
                 for _ in range(6):
@@ -433,7 +442,11 @@ def explore_page() -> None:
                     name=name_input.value or "",
                     country=country_input.value or "",
                     text=text,
-                    limit=12,
+                    continent=(continent_select.value
+                               if continent_select.value != "Any"
+                               else ""),
+                    limit=24,
+                    offset=discovery_state["offset"],
                 )
 
             if not filtered and not discovered:
@@ -476,6 +489,15 @@ def explore_page() -> None:
                     for destination in discovered:
                         render_result(destination, profile, month,
                                       max_rain)
+                    with ui.row().classes(
+                        "col-span-full justify-center pt-2"
+                    ):
+                        ui.button(
+                            "Show more places",
+                            on_click=lambda: asyncio.create_task(
+                                show_more()),
+                        ).props("outline no-caps "
+                                "icon=sym_r_expand_more")
 
         def render_result(destination, profile: UserProfile,
                           month: int, max_rain=None) -> None:

@@ -212,3 +212,70 @@ async def test_country_lookup_failure_is_silent(fresh_cache):
         return httpx.Response(500)
 
     assert await make(handler).browse_country("Greece") == []
+
+
+@pytest.mark.asyncio
+async def test_continent_search_spreads_across_countries(fresh_cache):
+    """A continent search must not be filled by one country."""
+    def handler(request):
+        url = str(request.url)
+        if "type=country" in url:
+            name = request.url.params.get("text", "")
+            return httpx.Response(200, json={"results": [
+                {"country": name, "country_code": name[:2].lower(),
+                 "lat": 10.0, "lon": 10.0,
+                 "place_id": f"place-{name}"},
+            ]})
+        if "/v2/places" in url:
+            place = request.url.params["filter"].split(":")[-1]
+            country = place.replace("place-", "")
+            return httpx.Response(200, json={"features": [
+                {"properties": {
+                    "city": f"{country} City {i}",
+                    "country": country, "country_code": "xx",
+                    "lat": 10.0 + i, "lon": 10.0 + i,
+                    "timezone": {"name": "Europe/Athens"}}}
+                for i in range(3)
+            ]})
+        return httpx.Response(200, json={"results": []})
+
+    found = await make(handler).browse_continent("Europe", limit=12)
+    countries = {d.country for d in found}
+    assert len(found) == 12
+    # Several different countries represented, not just the first.
+    assert len(countries) >= 4
+
+
+@pytest.mark.asyncio
+async def test_unknown_continent_returns_nothing(fresh_cache):
+    def handler(request):
+        return httpx.Response(200, json={"results": []})
+
+    assert await make(handler).browse_continent("Atlantis") == []
+
+
+@pytest.mark.asyncio
+async def test_offset_reaches_different_countries(fresh_cache):
+    seen = {"countries": []}
+
+    def handler(request):
+        url = str(request.url)
+        if "type=country" in url:
+            name = request.url.params.get("text", "")
+            seen["countries"].append(name)
+            return httpx.Response(200, json={"results": [
+                {"country": name, "country_code": "xx", "lat": 1.0,
+                 "lon": 1.0, "place_id": f"place-{name}"},
+            ]})
+        if "/v2/places" in url:
+            return httpx.Response(200, json={"features": []})
+        return httpx.Response(200, json={"results": []})
+
+    service = make(handler)
+    await service.browse_continent("Europe", limit=12, offset=0)
+    first = set(seen["countries"])
+    seen["countries"] = []
+    await service.browse_continent("Europe", limit=12, offset=24)
+    second = set(seen["countries"])
+    # A later page must look at countries the first page did not.
+    assert second - first
