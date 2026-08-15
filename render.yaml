@@ -2,13 +2,17 @@
 #
 # 1. Push this repo to GitHub.
 # 2. https://render.com -> New -> Blueprint -> pick the repo.
-# 3. Fill the API keys it prompts for (they are marked sync:false).
+# 3. Fill the values it prompts for (they are marked sync:false).
 # 4. Deploy. You get https://<name>.onrender.com with a valid
 #    certificate; APP_BASE_URL is wired to it automatically.
 #
-# Note: the free web service sleeps after ~15 minutes idle and takes
-# about a minute to wake. That is fine for testing and for Google's
-# crawler, but upgrade to the paid tier before promoting the site.
+# IMPORTANT: envVars here apply when the service is CREATED. For an
+# existing service, add or edit variables in the Environment tab -
+# changing this file will not retro-fit them.
+#
+# The free web service sleeps after ~15 minutes idle and takes up to
+# 50s to wake, and it supports neither Shell nor One-Off Jobs. Upgrade
+# to Starter before promoting the site or submitting it to Google.
 
 services:
   - type: web
@@ -16,17 +20,28 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
+    region: frankfurt
+    branch: main
     healthCheckPath: /robots.txt
+    autoDeploy: true
     envVars:
+      # --- Core ---
       - key: APP_ENV
         value: production
+      - key: SITE_NAME
+        value: Aevyra
+      - key: DEBUG
+        value: "false"
+
       # Seeds destinations on first boot when the table is empty, and
       # promotes ADMIN_EMAIL once that account has registered. Needed
-      # on plans without shell access.
+      # on plans without shell access. Quoted: an unquoted true is a
+      # YAML boolean, and the value must reach the app as a string.
       - key: SEED_ON_START
-        value: true
+        value: "true"
       - key: ADMIN_EMAIL
         sync: false
+
       # Render injects the service's own https URL here.
       - key: APP_BASE_URL
         fromService:
@@ -39,9 +54,14 @@ services:
           property: connectionString
       - key: APP_SECRET_KEY
         generateValue: true
-      # --- fill these in the Render dashboard ---
+
+      # --- Hotels (LiteAPI: free sandbox key) ---
       - key: LITEAPI_KEY
         sync: false
+      - key: LITEAPI_GUEST_NATIONALITY
+        value: GR
+
+      # --- Places, photos, weather, events, routing ---
       - key: GEOAPIFY_API_KEY
         sync: false
       - key: PEXELS_API_KEY
@@ -50,20 +70,44 @@ services:
         sync: false
       - key: TICKETMASTER_API_KEY
         sync: false
+      - key: TICKETMASTER_CONSUMER_SECRET
+        sync: false
       - key: OPENROUTESERVICE_API_KEY
         sync: false
+      - key: OPENEXCHANGERATES_API_KEY
+        sync: false
+
+      # --- AI (optional; blank disables the Copilot) ---
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: NL_PARSE_PROVIDER
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # --- Email (blank = log to console) ---
       - key: SALES_INBOX_EMAIL
         sync: false
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
-        sync: false
+        value: "587"
       - key: SMTP_USERNAME
         sync: false
       - key: SMTP_PASSWORD
         sync: false
       - key: SMTP_FROM_EMAIL
         sync: false
+      - key: SMTP_FROM_NAME
+        value: Aevyra
+      - key: SMTP_USE_TLS
+        value: "true"
+
+      # --- Payments (Stripe) ---
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_PUBLISHABLE_KEY
