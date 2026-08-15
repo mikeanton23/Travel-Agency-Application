@@ -20,6 +20,13 @@ services:
     envVars:
       - key: APP_ENV
         value: production
+      # Seeds destinations on first boot when the table is empty, and
+      # promotes ADMIN_EMAIL once that account has registered. Needed
+      # on plans without shell access.
+      - key: SEED_ON_START
+        value: true
+      - key: ADMIN_EMAIL
+        sync: false
       # Render injects the service's own https URL here.
       - key: APP_BASE_URL
         fromService:
