@@ -11,7 +11,11 @@ from app.services.analytics import Analytics, DatabaseSink
 from app.services.hotels.search import HotelSearchService
 from app.utils.http_client import HttpJsonClient, RetryPolicy
 
-GEO_JSON = {"features": [{"properties": {"lat": 48.85, "lon": 2.35}}]}
+GEO_JSON = {"results": [
+    {"city": "Paris", "country": "France", "country_code": "fr",
+     "formatted": "Paris, France", "lat": 48.85, "lon": 2.35,
+     "rank": {"importance": 0.9}, "population": 2100000},
+]}
 TOKEN_JSON = {"access_token": "tok", "expires_in": 1799}
 
 
@@ -127,7 +131,7 @@ async def test_live_search_normalises_and_sorts(fresh_cache):
 async def test_geocode_failure_is_graceful(fresh_cache):
     def handler(request):
         if "geoapify" in str(request.url):
-            return httpx.Response(200, json={"features": []})
+            return httpx.Response(200, json={"results": []})
         return httpx.Response(200, json=TOKEN_JSON)
 
     service = build(handler)

@@ -86,31 +86,90 @@ class HotelSearchService:
     async def geocode_city(
         self, city: str, country: Optional[str] = None
     ) -> Optional[Tuple[float, float]]:
-        if not config.GEOAPIFY_API_KEY:
+        """Coordinates for a city, preferring the best-known match."""
+        place = await self.resolve_place(city, country)
+        if place is None:
             return None
+        return place["latitude"], place["longitude"]
 
-        @api_cache.cached("geoapify:geocode_city", ttl=GEOCODE_TTL)
-        async def _lookup(text: str) -> Optional[List[float]]:
+    async def resolve_place(
+        self, city: str, country: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve a city name to one specific place.
+
+        Many city names exist in several countries, and taking the
+        first result silently sent users to the wrong continent. This
+        applies to every search, not to any particular city: candidates
+        are ranked by the geocoder's own importance score and then
+        population, and the resolved place is returned so the UI can
+        show which one was chosen and offer the alternatives.
+        """
+        candidates = await self.place_candidates(city, country)
+        return candidates[0] if candidates else None
+
+    async def place_candidates(
+        self, city: str, country: Optional[str] = None, limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Ranked matches for an ambiguous place name."""
+        if not config.GEOAPIFY_API_KEY or not city:
+            return []
+
+        @api_cache.cached("geoapify:city_candidates", ttl=GEOCODE_TTL)
+        async def _lookup(text: str, n: int) -> Optional[List[Dict[str, Any]]]:
             try:
                 payload = await self.http.arequest_json(
                     "GET", "https://api.geoapify.com/v1/geocode/search",
-                    params={"text": text, "type": "city", "limit": 1,
+                    params={"text": text, "type": "city", "limit": n,
+                            "format": "json",
                             "apiKey": config.GEOAPIFY_API_KEY},
                 )
             except ApiError as exc:
                 logger.warning("Geocode failed for %s: %s", text, exc)
                 return None
-            features = (payload or {}).get("features") or []
-            if not features:
-                return None
-            props = features[0].get("properties", {})
-            lat, lon = props.get("lat"), props.get("lon")
-            return [lat, lon] if lat is not None and lon is not None \
-                else None
+            rows = []
+            for row in (payload or {}).get("results") or []:
+                lat, lon = row.get("lat"), row.get("lon")
+                if lat is None or lon is None:
+                    continue
+                rank = row.get("rank") or {}
+                rows.append({
+                    "name": (row.get("city") or row.get("name")
+                             or city),
+                    "country": row.get("country"),
+                    "country_code": (row.get("country_code")
+                                     or "").upper(),
+                    "state": row.get("state"),
+                    "formatted": row.get("formatted"),
+                    "latitude": float(lat),
+                    "longitude": float(lon),
+                    "importance": float(rank.get("importance") or 0.0),
+                    "population": int(row.get("population") or 0),
+                })
+            return rows
 
         query = f"{city}, {country}" if country else city
-        coords = await _lookup(query)
-        return (coords[0], coords[1]) if coords else None
+        rows = await _lookup(query, limit) or []
+
+        # A stated qualifier is a hard requirement, not a hint. It
+        # may be a country name, an ISO country code, or a state or
+        # region - users write all three interchangeably.
+        if country:
+            wanted = country.strip().lower()
+            exact = [
+                r for r in rows
+                if wanted in {
+                    (r.get("country") or "").lower(),
+                    (r.get("country_code") or "").lower(),
+                    (r.get("state") or "").lower(),
+                }
+            ]
+            if exact:
+                rows = exact
+
+        # Best known place first: Geoapify importance, then population.
+        rows.sort(key=lambda r: (r["importance"], r["population"]),
+                  reverse=True)
+        return rows
 
     # ------------------------------------------------------------------
     # Search

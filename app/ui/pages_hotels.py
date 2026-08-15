@@ -816,9 +816,47 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                     "personalised direct offer."
                 ).classes("opacity-85 text-sm")
 
+        # Which place we actually searched. "Athens" matches Greece and
+        # Georgia, USA, so the choice must be visible and correctable.
+        place_bar = ui.row().classes("w-full items-center gap-2 "
+                                     "flex-wrap")
         results = ui.column().classes("w-full gap-3")
         fields: Dict[str, Any] = {}
         auto_state: Dict[str, Any] = {"on": True, "refreshing": False}
+
+        async def show_place_options() -> None:
+            candidates = await hotel_search_service.place_candidates(
+                city, country, limit=5)
+            try:
+                place_bar.clear()
+            except RuntimeError:
+                return
+            if not candidates:
+                return
+            chosen = candidates[0]
+            with place_bar:
+                ui.icon("sym_r_location_on").classes("text-primary")
+                ui.label(
+                    "Searching " + (chosen.get("formatted")
+                                    or chosen["name"])
+                ).classes("tv-mono text-xs")
+                others = [c for c in candidates[1:]
+                          if c.get("country") != chosen.get("country")
+                          or c.get("state") != chosen.get("state")][:3]
+                if others:
+                    ui.label("- did you mean").classes(
+                        "tv-mono text-xs tv-muted")
+                    for other in others:
+                        label = ", ".join(
+                            p for p in (other["name"],
+                                        other.get("state"),
+                                        other.get("country")) if p)
+                        ui.button(
+                            label,
+                            on_click=lambda o=other: ui.navigate.to(
+                                hotels_city_path(o["name"],
+                                                 o.get("country"))),
+                        ).props("flat dense no-caps size=sm")
         # Built once, at page-build time -- reliably openable later.
 
 
@@ -979,7 +1017,8 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
             f"so rather than showing an estimate."
         ).classes("text-sm tv-muted max-w-3xl")
 
-        ui.timer(0.1, run_search, once=True)
+        ui.timer(0.1, show_place_options, once=True)
+        ui.timer(0.2, run_search, once=True)
 
 
 # ----------------------------------------------------------------------

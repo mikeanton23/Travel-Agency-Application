@@ -101,7 +101,15 @@ class DiscoveryService:
             return (payload or {}).get("results") or []
 
         rows = await _search(query, limit)
-        return [d for d in (self._to_destination(r) for r in rows or [])
+        # Rank by Geoapify importance so "Athens" leads with Greece,
+        # not Athens, Georgia.
+        rows = sorted(
+            rows or [],
+            key=lambda r: (float((r.get("rank") or {}).get(
+                "importance") or 0.0), int(r.get("population") or 0)),
+            reverse=True,
+        )
+        return [d for d in (self._to_destination(r) for r in rows)
                 if d is not None]
 
     async def country_place(

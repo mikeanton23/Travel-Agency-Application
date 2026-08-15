@@ -44,7 +44,11 @@ RATES_JSON = {"data": [
     },
 ]}
 
-GEO_JSON = {"features": [{"properties": {"lat": 37.98, "lon": 23.73}}]}
+GEO_JSON = {"results": [
+    {"city": "Athens", "country": "Greece", "country_code": "gr",
+     "formatted": "Athens, Greece", "lat": 37.98, "lon": 23.73,
+     "rank": {"importance": 0.79}, "population": 3150000},
+]}
 
 
 def make(handler, configured=True):
