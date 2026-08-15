@@ -35,13 +35,16 @@ class OpenAIProvider(LLMProvider):
                 "Content-Type": "application/json"}
 
     async def complete(self, model, messages) -> Completion:
-        async with self._client() as client:
-            resp = await client.post(
-                f"{self.base_url}/v1/chat/completions",
-                headers=self._headers(),
-                json={"model": model,
-                      "messages": [m.to_dict() for m in messages]},
-            )
+        try:
+            async with self._client() as client:
+                    resp = await client.post(
+                    f"{self.base_url}/v1/chat/completions",
+                    headers=self._headers(),
+                    json={"model": model,
+                          "messages": [m.to_dict() for m in messages]},
+                )
+        except httpx.TransportError as exc:
+            raise _connection_error(self.name, exc) from exc
         _raise_for_status(resp, self.name)
         data = resp.json()
         usage = data.get("usage", {})
@@ -192,7 +195,7 @@ class GeminiProvider(LLMProvider):
 
 
 class OllamaProvider(LLMProvider):
-    """Local models — llama3, mistral, and anything else Ollama serves.
+    """Local models -- llama3, mistral, and anything else Ollama serves.
     No API key required."""
 
     name = "ollama"

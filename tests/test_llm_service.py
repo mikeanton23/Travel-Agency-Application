@@ -155,3 +155,53 @@ def test_unknown_provider_and_missing_key(monkeypatch):
     with pytest.raises(LLMError):
         service.get_provider("openai")
     assert service.available_providers() == ["ollama"]
+
+
+def test_ollama_hidden_in_production(monkeypatch):
+    """A localhost daemon cannot exist in a hosted container, so
+    offering it guarantees a connection error for the user."""
+    from app.utils import settings as settings_module
+
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
+    service = LLMService(key_resolver=lambda p: None)
+    assert "ollama" not in service.available_providers()
+    assert service.available_providers() == []
+
+    # A remote Ollama host is legitimate and stays listed.
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setenv("OLLAMA_HOST", "http://ollama.internal:11434")
+    assert "ollama" in service.available_providers()
+    settings_module.get_settings.cache_clear()
+
+
+def test_ollama_offered_locally(monkeypatch):
+    from app.utils import settings as settings_module
+
+    settings_module.get_settings.cache_clear()
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
+    service = LLMService(key_resolver=lambda p: None)
+    assert service.available_providers() == ["ollama"]
+    settings_module.get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_unreachable_provider_gives_a_readable_error(monkeypatch):
+    """A transport failure must surface as a clear message, never as a
+    raw httpx traceback in the UI."""
+    from app.services.llm.providers import OllamaProvider
+
+    def handler(request):
+        raise httpx.ConnectError("all connection attempts failed")
+
+    service = LLMService(
+        key_resolver=lambda p: None,
+        provider_overrides={"ollama": OllamaProvider(
+            transport=httpx.MockTransport(handler))},
+    )
+    with pytest.raises(LLMError) as excinfo:
+        await service.chat([Message("user", "hi")], "ollama")
+    assert "Ollama" in str(excinfo.value)
+    assert "locally" in str(excinfo.value)

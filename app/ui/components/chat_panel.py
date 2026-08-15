@@ -13,6 +13,17 @@ from app.services.llm.service import DEFAULT_MODELS, LLMService
 
 def chat_panel(llm: LLMService) -> None:
     providers = llm.available_providers()
+    if not providers:
+        with ui.card().classes("tv-glass w-full p-5 gap-2"):
+            ui.icon("sym_r_info").classes("text-2xl text-primary")
+            ui.label("No AI provider is configured").classes(
+                "font-medium")
+            ui.label(
+                "Add an OpenAI, Anthropic or Gemini API key in "
+                "Settings to enable the Copilot. Ollama is only "
+                "available when you run this app on your own machine."
+            ).classes("text-sm tv-muted")
+        return
     state = {"conversation_id": None, "busy": False}
 
     with ui.card().classes("tv-glass w-full p-4 gap-3"):
@@ -69,13 +80,17 @@ def chat_panel(llm: LLMService) -> None:
                     collected += delta
                     stream_label.set_content(collected)
             except LLMError as exc:
-                stream_label.set_content(f"**Error:** {exc}")
+                stream_label.set_content(f"**{exc}**")
+            except Exception as exc:      # never leak a traceback
+                stream_label.set_content(
+                    f"**Something went wrong talking to {provider}:** "
+                    f"{type(exc).__name__}")
             finally:
                 state["busy"] = False
 
         with ui.row().classes("w-full items-center gap-2"):
             prompt_input = ui.input(
-                placeholder="Ask about destinations, plans, budgets…"
+                placeholder="Ask about destinations, plans, budgets..."
             ).classes("flex-grow").on("keydown.enter", send)
             ui.button(on_click=send).props(
                 "round color=primary icon=send"

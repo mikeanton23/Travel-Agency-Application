@@ -15,7 +15,11 @@ import asyncio
 import logging
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Type
 
-from app.services.llm.base import Completion, LLMError, LLMProvider, Message
+import httpx
+
+from app.services.llm.base import (
+    Completion, LLMError, LLMProvider, Message,
+)
 from app.services.llm.providers import (
     AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider,
 )
@@ -42,6 +46,21 @@ ENV_KEYS = {
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GEMINI_API_KEY",
 }
+
+
+
+def _connection_error(provider: str, exc: Exception) -> LLMError:
+    """Readable message for a provider we could not even reach."""
+    if provider == "ollama":
+        return LLMError(
+            "Could not reach Ollama. It runs locally, so it is only "
+            "available when you host this app yourself with Ollama "
+            "running. Choose a cloud provider instead."
+        )
+    return LLMError(
+        f"Could not reach {provider} ({type(exc).__name__}). Check "
+        f"the connection or try another provider."
+    )
 
 
 class LLMService:
@@ -91,17 +110,43 @@ class LLMService:
             return cls(base_url=config.OLLAMA_HOST)
         if not key:
             raise LLMError(
-                f"No API key configured for '{provider}' — add one in "
+                f"No API key configured for '{provider}' -- add one in "
                 f"Settings or .env."
             )
         return cls(api_key=key)
 
     def available_providers(self) -> List[str]:
-        out = ["ollama"]  # local, keyless
+        """Providers the UI may offer.
+
+        Ollama is only listed when it could plausibly answer: it is a
+        local daemon, so a hosted deployment pointing at localhost has
+        nothing to talk to. Offering it there guarantees a connection
+        error the moment the user sends a message.
+        """
+        out: List[str] = []
+        if self.ollama_reachable():
+            out.append("ollama")
         for name in ("openai", "anthropic", "gemini"):
             if self._resolve_key(name):
                 out.append(name)
         return sorted(out)
+
+    @staticmethod
+    def ollama_reachable() -> bool:
+        from urllib.parse import urlparse
+
+        from app.utils.settings import get_settings
+
+        settings = get_settings()
+        host = (settings.ollama_host or "").strip()
+        if not host:
+            return False
+        hostname = (urlparse(host).hostname or "").lower()
+        is_local = hostname in ("localhost", "127.0.0.1", "::1", "")
+        # A localhost daemon cannot exist in a production container.
+        if is_local and settings.app_env.strip().lower() == "production":
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Chat (with optional persistent memory)
@@ -117,9 +162,12 @@ class LLMService:
     ) -> Completion:
         model = model or DEFAULT_MODELS.get(provider, "")
         history = self._load_history(conversation_id)
-        completion = await self.get_provider(provider).complete(
-            model, history + messages
-        )
+        try:
+            completion = await self.get_provider(provider).complete(
+                model, history + messages
+            )
+        except httpx.TransportError as exc:
+            raise _connection_error(provider, exc) from exc
         self._persist(conversation_id, user_id, provider, model,
                       messages, completion.text,
                       completion.output_tokens)
@@ -137,11 +185,14 @@ class LLMService:
         model = model or DEFAULT_MODELS.get(provider, "")
         history = self._load_history(conversation_id)
         collected: List[str] = []
-        async for delta in self.get_provider(provider).stream(
-            model, history + messages
-        ):
-            collected.append(delta)
-            yield delta
+        try:
+            async for delta in self.get_provider(provider).stream(
+                model, history + messages
+            ):
+                collected.append(delta)
+                yield delta
+        except httpx.TransportError as exc:
+            raise _connection_error(provider, exc) from exc
         self._persist(conversation_id, user_id, provider, model,
                       messages, "".join(collected), None)
 
