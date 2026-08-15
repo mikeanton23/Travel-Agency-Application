@@ -104,13 +104,20 @@ class DiscoveryService:
         return [d for d in (self._to_destination(r) for r in rows or [])
                 if d is not None]
 
-    async def country_code(self, country: str) -> Optional[str]:
-        """ISO2 code for a country name, via geocoding."""
+    async def country_place(
+        self, country: str
+    ) -> Optional[Dict[str, Any]]:
+        """Geocode a country to its Geoapify place_id and coordinates.
+
+        The Places API only accepts spatial filters, so a country has
+        to be resolved to a boundary (place_id) before its cities can
+        be listed.
+        """
         if not self.configured or not country:
             return None
 
-        @api_cache.cached("geoapify:country_code", ttl=DISCOVERY_TTL)
-        async def _lookup(name: str) -> Optional[str]:
+        @api_cache.cached("geoapify:country_place", ttl=DISCOVERY_TTL)
+        async def _lookup(name: str) -> Optional[Dict[str, Any]]:
             try:
                 payload = await self.http.arequest_json(
                     "GET", "https://api.geoapify.com/v1/geocode/search",
@@ -125,8 +132,15 @@ class DiscoveryService:
             results = (payload or {}).get("results") or []
             if not results:
                 return None
-            code = results[0].get("country_code")
-            return code.upper() if code else None
+            row = results[0]
+            if not row.get("place_id"):
+                return None
+            return {
+                "place_id": row["place_id"],
+                "country_code": (row.get("country_code") or "").upper(),
+                "lat": row.get("lat"),
+                "lon": row.get("lon"),
+            }
 
         return await _lookup(country.strip())
 
@@ -137,33 +151,37 @@ class DiscoveryService:
 
         Geocoding "Greece" as a city returns nothing, which made a
         country-only search look broken. This resolves the country to
-        its ISO code and then asks the Places API for populated places
+        its boundary and asks the Places API for populated places
         inside it.
         """
-        code = await self.country_code(country)
-        if not code:
+        place = await self.country_place(country)
+        if not place:
             return []
 
         @api_cache.cached("geoapify:country_cities", ttl=DISCOVERY_TTL)
-        async def _cities(cc: str, n: int) -> Optional[List[Dict[str, Any]]]:
+        async def _cities(place_id: str,
+                          n: int) -> Optional[List[Dict[str, Any]]]:
             try:
                 payload = await self.http.arequest_json(
                     "GET", "https://api.geoapify.com/v2/places",
                     params={
                         "categories": "populated_place.city",
-                        "filter": f"countrycode:{cc.lower()}",
+                        # Only spatial filters are accepted here.
+                        "filter": f"place:{place_id}",
                         "limit": n,
                         "apiKey": config.GEOAPIFY_API_KEY,
                     },
                 )
             except ApiError as exc:
-                logger.warning("City browse failed for %s: %s", cc, exc)
+                logger.warning("City browse failed for %s: %s",
+                               country, exc)
                 return None
             rows = []
             for feature in (payload or {}).get("features") or []:
                 props = feature.get("properties") or {}
                 rows.append({
-                    "city": props.get("city") or props.get("name"),
+                    "city": (props.get("city") or props.get("name")
+                             or props.get("address_line1")),
                     "country": props.get("country"),
                     "country_code": props.get("country_code"),
                     "lat": props.get("lat"),
@@ -174,7 +192,58 @@ class DiscoveryService:
                 })
             return rows
 
-        rows = await _cities(code, limit)
+        rows = await _cities(place["place_id"], limit)
+        found = [d for d in (self._to_destination(r) for r in rows or [])
+                 if d is not None]
+        if found:
+            return found
+
+        # Fallback: some country boundaries return no city features.
+        # A radius search around the country centre is still real data.
+        if place.get("lat") is not None and place.get("lon") is not None:
+            return await self._cities_near(
+                float(place["lat"]), float(place["lon"]), limit)
+        return []
+
+    async def _cities_near(
+        self, latitude: float, longitude: float, limit: int,
+        radius_m: int = 300000,
+    ) -> List[DiscoveredDestination]:
+        @api_cache.cached("geoapify:cities_near", ttl=DISCOVERY_TTL)
+        async def _fetch(lat: float, lon: float, radius: int,
+                         n: int) -> Optional[List[Dict[str, Any]]]:
+            try:
+                payload = await self.http.arequest_json(
+                    "GET", "https://api.geoapify.com/v2/places",
+                    params={
+                        "categories": "populated_place.city",
+                        "filter": f"circle:{lon},{lat},{radius}",
+                        "bias": f"proximity:{lon},{lat}",
+                        "limit": n,
+                        "apiKey": config.GEOAPIFY_API_KEY,
+                    },
+                )
+            except ApiError as exc:
+                logger.warning("Nearby city search failed: %s", exc)
+                return None
+            rows = []
+            for feature in (payload or {}).get("features") or []:
+                props = feature.get("properties") or {}
+                rows.append({
+                    "city": (props.get("city") or props.get("name")
+                             or props.get("address_line1")),
+                    "country": props.get("country"),
+                    "country_code": props.get("country_code"),
+                    "lat": props.get("lat"),
+                    "lon": props.get("lon"),
+                    "place_id": props.get("place_id"),
+                    "formatted": props.get("formatted"),
+                    "timezone": props.get("timezone") or {},
+                })
+            return rows
+
+        rows = await _fetch(round(latitude, 3), round(longitude, 3),
+                            radius_m, limit)
         return [d for d in (self._to_destination(r) for r in rows or [])
                 if d is not None]
 

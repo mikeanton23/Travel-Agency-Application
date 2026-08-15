@@ -102,7 +102,8 @@ def test_month_matching_handles_names_and_numbers():
 
 
 COUNTRY_JSON = {"results": [
-    {"country": "Greece", "country_code": "gr", "lat": 39.0, "lon": 22.0},
+    {"country": "Greece", "country_code": "gr", "lat": 39.0,
+     "lon": 22.0, "place_id": "51a1b2c3greece"},
 ]}
 
 CITIES_JSON = {"features": [
@@ -124,8 +125,10 @@ async def test_country_only_search_lists_cities(fresh_cache):
         if "type=country" in url:
             return httpx.Response(200, json=COUNTRY_JSON)
         if "/v2/places" in url:
-            # The colon arrives percent-encoded in the query string.
-            assert request.url.params["filter"] == "countrycode:gr"
+            # Places accepts only spatial filters; a country must be
+            # expressed as its boundary place_id.
+            assert request.url.params["filter"] == \
+                "place:51a1b2c3greece"
             return httpx.Response(200, json=CITIES_JSON)
         return httpx.Response(200, json={"results": []})
 
@@ -176,3 +179,36 @@ async def test_suggest_with_nothing_returns_nothing(fresh_cache):
         return httpx.Response(200, json={"results": []})
 
     assert await make(handler).suggest() == []
+
+
+@pytest.mark.asyncio
+async def test_country_without_city_features_falls_back_to_radius(
+    fresh_cache,
+):
+    """Some country boundaries return no city features; a radius
+    search around the centre is still real data, not a guess."""
+    seen = []
+
+    def handler(request):
+        url = str(request.url)
+        if "type=country" in url:
+            return httpx.Response(200, json=COUNTRY_JSON)
+        if "/v2/places" in url:
+            seen.append(request.url.params["filter"])
+            if request.url.params["filter"].startswith("place:"):
+                return httpx.Response(200, json={"features": []})
+            return httpx.Response(200, json=CITIES_JSON)
+        return httpx.Response(200, json={"results": []})
+
+    found = await make(handler).browse_country("Greece")
+    assert [d.name for d in found] == ["Athens", "Thessaloniki"]
+    assert seen[0].startswith("place:")
+    assert seen[1].startswith("circle:")
+
+
+@pytest.mark.asyncio
+async def test_country_lookup_failure_is_silent(fresh_cache):
+    def handler(request):
+        return httpx.Response(500)
+
+    assert await make(handler).browse_country("Greece") == []
