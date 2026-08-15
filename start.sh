@@ -1,7 +1,9 @@
 #!/bin/sh
 # Container entrypoint: apply migrations, then serve.
-set -e
 echo "Applying database migrations..."
-alembic upgrade head || echo "Migration step skipped or already current"
-echo "Starting Aevyra..."
-exec python3 -m app.main
+if ! alembic upgrade head; then
+    echo "WARNING: alembic upgrade failed - the app will still start,"
+    echo "but tables may be missing. Check DB_URL and the log above."
+fi
+echo "Starting Aevyra on port ${PORT:-8086}..."
+exec python3 -u -m app.main

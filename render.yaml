@@ -20,8 +20,6 @@ services:
     envVars:
       - key: APP_ENV
         value: production
-      - key: PORT
-        value: 8086
       # Render injects the service's own https URL here.
       - key: APP_BASE_URL
         fromService:

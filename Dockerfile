@@ -19,14 +19,20 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 COPY . .
 
+# The entrypoint must survive a copy through Windows: strip any CRLF
+# line endings and restore the executable bit. Without this the
+# container exits immediately with no output ("bad interpreter").
+RUN sed -i 's/\r$//' start.sh && chmod +x start.sh
+
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 aevyra \
     && chown -R aevyra:aevyra /app
 USER aevyra
 
-EXPOSE 8086
+# Render/Fly inject PORT at runtime; this is only documentation.
+EXPOSE 10000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD curl -fsS http://localhost:8086/robots.txt || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS "http://localhost:${PORT:-8086}/robots.txt" || exit 1
 
-CMD ["./start.sh"]
+CMD ["sh", "./start.sh"]
