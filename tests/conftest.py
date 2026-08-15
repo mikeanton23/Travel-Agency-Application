@@ -19,6 +19,10 @@ def fresh_cache(monkeypatch):
         "app.services.currency_service",
         "app.services.cost_service",
         "app.services.rag.knowledge",
+        "app.services.discovery",
+        "app.services.hotels.liteapi_provider",
+        "app.services.hotels.booking_provider",
+        "app.services.hotels.search",
         "app.services.intelligence.signals",
     ):
         try:

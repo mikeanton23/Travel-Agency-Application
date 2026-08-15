@@ -24,7 +24,10 @@ from nicegui import ui
 from app.db.database import SessionLocal
 from app.repositories.destination_repository import DestinationRepository
 from app.services.cost_service import cost_service
+from app.services.discovery import discovery_service
+from app.utils.dates import month_matches
 from app.services.image_service import image_service
+from app.services.seo import hotels_city_path
 from app.services.intelligence.score import UserProfile, compute_score
 from app.services.intelligence.signals import signals_collector
 from app.services.key_manager import KeyManager
@@ -393,18 +396,22 @@ def explore_page() -> None:
                 if country_text and country_text not in \
                         (destination.country or "").lower():
                     continue
+                # Interests are a ranking signal, not a hard filter:
+                # tag coverage is sparse, and silently hiding a place
+                # because nobody tagged it is worse than ordering it
+                # lower. Strict filtering stays with budget and dates.
                 tags = [str(x).lower()
                         for x in (getattr(destination, "tags", None)
                                   or [])]
                 wanted = [w.lower() for w in
                           list(chosen_interests) + list(styles)]
-                if wanted and tags and not any(
-                        any(w in tag or tag in w for tag in tags)
-                        for w in wanted):
-                    continue
+                destination._match_score = sum(
+                    1 for w in wanted
+                    if any(w in tag or tag in w for tag in tags)
+                ) if wanted else 0
                 months = getattr(destination, "best_months", None) or []
                 if months and month_select.value and \
-                        month_select.value not in months:
+                        not month_matches(months, month_select.value):
                     continue
                 filtered.append(destination)
 
@@ -419,16 +426,38 @@ def explore_page() -> None:
             elif sort_by == "Name: A to Z":
                 filtered.sort(key=lambda d: (d.name or "").lower())
             else:
-                filtered.sort(key=lambda d: d.ai_score or 0,
-                              reverse=True)
+                filtered.sort(
+                    key=lambda d: (getattr(d, "_match_score", 0),
+                                   d.ai_score or 0),
+                    reverse=True)
 
             results_grid.clear()
+
+            # Nothing stored matches: look the place up for real
+            # instead of showing an empty page. These come from live
+            # geocoding, so they are genuine places with no stored
+            # cost or score - the cards say so.
+            discovered = []
             if not filtered:
+                probe = " ".join(p for p in (
+                    name_input.value or "",
+                    country_input.value or "",
+                    text if not (name_input.value
+                                 or country_input.value) else "",
+                ) if p).strip()
+                if not probe and continent_select.value != "Any":
+                    probe = continent_select.value
+                if probe:
+                    discovered = await discovery_service.search(
+                        probe, limit=12)
+
+            if not filtered and not discovered:
                 with results_grid:
                     ui.label(
-                        "No destinations match these filters. Widen "
-                        "the budget, clear a filter, or seed more "
-                        "destinations - nothing is loosened silently."
+                        "No destinations match these filters, and we "
+                        "could not find that place. Try a city or "
+                        "country name, widen the budget, or clear a "
+                        "filter - nothing is loosened silently."
                     ).classes("tv-muted")
                 return
 
@@ -443,13 +472,25 @@ def explore_page() -> None:
                 traveling_with_kids=bool(with_kids.value),
             )
             with results_grid:
-                ui.label(
-                    f"{len(filtered)} of {len(destinations)} "
-                    f"destinations match"
-                ).classes("tv-mono text-xs tv-muted col-span-full")
-                for destination in filtered:
-                    render_result(destination, profile, month,
-                                  max_rain)
+                if filtered:
+                    ui.label(
+                        f"{len(filtered)} of {len(destinations)} "
+                        f"saved destinations match"
+                    ).classes(
+                        "tv-mono text-xs tv-muted col-span-full")
+                    for destination in filtered:
+                        render_result(destination, profile, month,
+                                      max_rain)
+                if discovered:
+                    ui.label(
+                        f"{len(discovered)} places found live "
+                        f"(Geoapify) - real locations, no stored cost "
+                        f"or score yet"
+                    ).classes(
+                        "tv-mono text-xs tv-muted col-span-full")
+                    for destination in discovered:
+                        render_result(destination, profile, month,
+                                      max_rain)
 
         def render_result(destination, profile: UserProfile,
                           month: int, max_rain=None) -> None:
@@ -470,7 +511,9 @@ def explore_page() -> None:
                         badges=state["badges"],
                         score=state["score"],
                         on_open=lambda d=destination: ui.navigate.to(
-                            f"/destination/{d.id}"
+                            f"/destination/{d.id}" if getattr(
+                                d, "id", None)
+                            else hotels_city_path(d.name, d.country)
                         ),
                         on_score=lambda: asyncio.create_task(
                             load_score()
