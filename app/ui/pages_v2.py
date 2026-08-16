@@ -36,7 +36,9 @@ from app.services.nl_search import nl_search_parser
 from app.ui.components.cards import destination_card, skeleton_card
 from app.ui.components.chat_panel import chat_panel
 from app.ui.components.layout import page_shell
-from app.ui.helpers import client_gone
+from app.ui.helpers import (
+    client_gone, element_alive, safe_clear,
+)
 from app.ui.components.score_panel import score_panel
 from app.ui.components.settings_panel import settings_panel
 from app.ui.format import cost_badge, unavailable_reason, weather_badge
@@ -335,7 +337,8 @@ def explore_page() -> None:
         async def _run_search(reset_offset: bool = False) -> None:
             if reset_offset:
                 discovery_state["offset"] = 0
-            results_grid.clear()
+            if not safe_clear(results_grid):
+                return
             with results_grid:
                 for _ in range(6):
                     skeleton_card()
@@ -357,6 +360,8 @@ def explore_page() -> None:
                     text, provider=provider)
                 # Natural language fills the controls, which then stay
                 # editable - the two never diverge silently.
+                if not element_alive(results_grid):
+                    return      # page closed while the parser ran
                 if parsed.continent:
                     continent_select.set_value(parsed.continent)
                 if parsed.month:
@@ -439,7 +444,8 @@ def explore_page() -> None:
                                    d.ai_score or 0),
                     reverse=True)
 
-            results_grid.clear()
+            if not safe_clear(results_grid):
+                return
 
             # Nothing stored matches: look the place up for real
             # instead of showing an empty page. These come from live
@@ -516,12 +522,10 @@ def explore_page() -> None:
             state = {"image": None, "badges": None, "score": None}
 
             def draw() -> None:
-                try:
-                    card_holder.clear()
-                except Exception as exc:
-                    if client_gone(exc):
-                        return   # user navigated away
-                    raise
+                # Ask before acting: touching a detached element only
+                # logs a warning, so an exception guard cannot catch it.
+                if not safe_clear(card_holder):
+                    return
                 with card_holder:
                     destination_card(
                         destination,
@@ -556,29 +560,19 @@ def explore_page() -> None:
                 if max_rain is not None and climate and \
                         climate.get("rain_days") is not None and \
                         climate["rain_days"] > max_rain:
-                    try:
-                        card_holder.clear()
-                    except Exception as exc:
-                        if not client_gone(exc):
-                            raise
+                    safe_clear(card_holder)
                     return
                 state["image"] = image
                 state["badges"] = [cost_badge(costs),
                                    weather_badge(climate)]
-                try:
+                if element_alive(card_holder):
                     draw()
-                except Exception as exc:
-                    if not client_gone(exc):
-                        raise
 
             async def load_score() -> None:
                 score = await _score_for(destination, profile, month)
                 state["score"] = score
-                try:
+                if element_alive(card_holder):
                     draw()
-                except Exception as exc:
-                    if not client_gone(exc):
-                        raise
 
             draw()
             asyncio.create_task(load_media_and_badges())

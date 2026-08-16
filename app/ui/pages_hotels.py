@@ -37,7 +37,9 @@ from app.services.seo import (
     hotels_city_path, organization_jsonld, slugify, website_jsonld,
 )
 from app.ui.components.layout import page_shell
-from app.ui.helpers import client_gone
+from app.ui.helpers import (
+    client_gone, element_alive, safe_clear,
+)
 
 CURATED = [
     ("Paris", "France"), ("Athens", "Greece"), ("Rome", "Italy"),
@@ -828,12 +830,8 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
         async def show_place_options() -> None:
             candidates = await hotel_search_service.place_candidates(
                 city, country, limit=5)
-            try:
-                place_bar.clear()
-            except Exception as exc:
-                if client_gone(exc):
-                    return
-                raise
+            if not safe_clear(place_bar):
+                return
             if not candidates:
                 return
             chosen = candidates[0]
@@ -893,12 +891,8 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                 city, check_in, check_out, country=country,
                 guests=guests, rooms=rooms, currency=currency,
             )
-            try:
-                results.clear()
-            except Exception as exc:
-                if client_gone(exc):
-                    return
-                raise
+            if not safe_clear(results):
+                return
             with results:
                 if not result.has_live_prices:
                     unavailable_notice(result)

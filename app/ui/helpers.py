@@ -24,3 +24,42 @@ def client_gone(exc: Exception) -> bool:
     return ("client" in message and
             ("deleted" in message or "disconnected" in message
              or "no longer" in message))
+
+
+def element_alive(element) -> bool:
+    """Whether a UI element can still be safely updated.
+
+    Newer NiceGUI does not raise when you touch a deleted element - it
+    logs "An element has been deleted but is still being used" and
+    carries on. Catching exceptions therefore misses it, so background
+    work must ask before acting rather than apologise afterwards.
+    """
+    if element is None:
+        return False
+    try:
+        client = element.client
+    except RuntimeError:
+        return False          # the whole page is gone
+    except Exception:
+        return False
+    try:
+        if getattr(client, "has_socket_connection", True) is False:
+            return False
+        elements = getattr(client, "elements", None)
+        if elements is not None and element.id not in elements:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def safe_clear(element) -> bool:
+    """Clear a container only if it is still attached. Returns whether
+    the caller should carry on and rebuild its contents."""
+    if not element_alive(element):
+        return False
+    try:
+        element.clear()
+    except Exception as exc:
+        return not client_gone(exc) and False
+    return True
