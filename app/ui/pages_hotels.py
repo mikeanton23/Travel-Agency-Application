@@ -37,6 +37,7 @@ from app.services.seo import (
     hotels_city_path, organization_jsonld, slugify, website_jsonld,
 )
 from app.ui.components.layout import page_shell
+from app.ui.helpers import client_gone
 
 CURATED = [
     ("Paris", "France"), ("Athens", "Greece"), ("Rome", "Italy"),
@@ -829,8 +830,10 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                 city, country, limit=5)
             try:
                 place_bar.clear()
-            except RuntimeError:
-                return
+            except Exception as exc:
+                if client_gone(exc):
+                    return
+                raise
             if not candidates:
                 return
             chosen = candidates[0]
@@ -892,8 +895,10 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
             )
             try:
                 results.clear()
-            except RuntimeError:
-                return
+            except Exception as exc:
+                if client_gone(exc):
+                    return
+                raise
             with results:
                 if not result.has_live_prices:
                     unavailable_notice(result)

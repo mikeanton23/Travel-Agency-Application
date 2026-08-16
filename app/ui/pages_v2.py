@@ -36,6 +36,7 @@ from app.services.nl_search import nl_search_parser
 from app.ui.components.cards import destination_card, skeleton_card
 from app.ui.components.chat_panel import chat_panel
 from app.ui.components.layout import page_shell
+from app.ui.helpers import client_gone
 from app.ui.components.score_panel import score_panel
 from app.ui.components.settings_panel import settings_panel
 from app.ui.format import cost_badge, unavailable_reason, weather_badge
@@ -324,6 +325,14 @@ def explore_page() -> None:
             await run_search()
 
         async def run_search(reset_offset: bool = False) -> None:
+            try:
+                await _run_search(reset_offset)
+            except Exception as exc:
+                if client_gone(exc):
+                    return      # browser closed mid-search
+                raise
+
+        async def _run_search(reset_offset: bool = False) -> None:
             if reset_offset:
                 discovery_state["offset"] = 0
             results_grid.clear()
@@ -509,8 +518,10 @@ def explore_page() -> None:
             def draw() -> None:
                 try:
                     card_holder.clear()
-                except RuntimeError:
-                    return  # user navigated away; client is gone
+                except Exception as exc:
+                    if client_gone(exc):
+                        return   # user navigated away
+                    raise
                 with card_holder:
                     destination_card(
                         destination,
@@ -547,24 +558,27 @@ def explore_page() -> None:
                         climate["rain_days"] > max_rain:
                     try:
                         card_holder.clear()
-                    except RuntimeError:
-                        pass
+                    except Exception as exc:
+                        if not client_gone(exc):
+                            raise
                     return
                 state["image"] = image
                 state["badges"] = [cost_badge(costs),
                                    weather_badge(climate)]
                 try:
                     draw()
-                except RuntimeError:
-                    pass  # client closed while data was loading
+                except Exception as exc:
+                    if not client_gone(exc):
+                        raise
 
             async def load_score() -> None:
                 score = await _score_for(destination, profile, month)
                 state["score"] = score
                 try:
                     draw()
-                except RuntimeError:
-                    pass
+                except Exception as exc:
+                    if not client_gone(exc):
+                        raise
 
             draw()
             asyncio.create_task(load_media_and_badges())
