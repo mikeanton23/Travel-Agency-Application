@@ -168,8 +168,14 @@ class LiteApiProvider:
                 "country": row.get("country"),
                 "latitude": row.get("latitude"),
                 "longitude": row.get("longitude"),
-                "rating": row.get("rating") or row.get("stars"),
-                "review_count": row.get("reviewCount"),
+                # starRating is the 1-5 classification; rating is the
+                # 0-10 guest review average. Keep them apart.
+                "stars": (row.get("starRating") or row.get("stars")
+                          or row.get("star_rating")),
+                "rating": (row.get("rating")
+                           or row.get("reviewScore")),
+                "review_count": (row.get("reviewCount")
+                                 or row.get("reviewsCount")),
                 "image": _first_photo(row),
                 "source": "liteapi",
             })
@@ -208,7 +214,10 @@ class LiteApiProvider:
                 "address": data.get("address"),
                 "city": data.get("city"),
                 "country": data.get("country"),
-                "rating": data.get("rating") or data.get("starRating"),
+                "stars": (data.get("starRating")
+                          or data.get("stars")),
+                "rating": (data.get("rating")
+                           or data.get("reviewScore")),
                 "review_count": data.get("reviewCount"),
                 "image": _first_photo(data),
                 "description": data.get("hotelDescription"),
@@ -235,8 +244,8 @@ class LiteApiProvider:
                 detail = await self.hotel_details(entry["hotel_id"])
             if not detail:
                 return
-            for key in ("name", "image", "address", "city", "rating",
-                        "review_count", "description"):
+            for key in ("name", "image", "address", "city", "stars",
+                        "rating", "review_count", "description"):
                 if not entry.get(key) and detail.get(key):
                     entry[key] = detail[key]
 
@@ -337,6 +346,7 @@ class LiteApiProvider:
                                or room_type.get("roomTypeName")),
                     hotel_name=hotel_name,
                     hotel_image=meta.get("image"),
+                    hotel_stars=meta.get("stars"),
                     hotel_rating=meta.get("rating"),
                     hotel_review_count=meta.get("review_count"),
                     hotel_address=meta.get("address"),

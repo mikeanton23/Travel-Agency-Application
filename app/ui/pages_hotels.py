@@ -212,12 +212,19 @@ def search_form(city: str, country: Optional[str], on_search) -> Dict:
                         ).props("dense outlined use-chips").classes(
                             "w-64")
                     with ui.column().classes("gap-0"):
-                        ui.label("Star rating (min)").classes(
+                        ui.label("Stars (min)").classes(
                             "tv-mono text-[10px] tv-muted uppercase")
                         fields["min_stars"] = ui.select(
                             {0: "Any", 3: "3+", 4: "4+", 5: "5"},
                             value=0).props("dense outlined").classes(
-                            "w-32")
+                            "w-28")
+                    with ui.column().classes("gap-0"):
+                        ui.label("Guest score (min, of 10)").classes(
+                            "tv-mono text-[10px] tv-muted uppercase")
+                        fields["min_score"] = ui.number(
+                            value=None, min=0, max=10,
+                            placeholder="any",
+                        ).props("dense outlined").classes("w-36")
                     with ui.column().classes("gap-0"):
                         ui.label("Sort by").classes(
                             "tv-mono text-[10px] tv-muted uppercase")
@@ -237,14 +244,19 @@ def search_form(city: str, country: Optional[str], on_search) -> Dict:
                         "All-in totals only")
                     fields["with_photo_only"] = ui.checkbox(
                         "Only properties with a photo")
+                    fields["allow_unstated"] = ui.checkbox(
+                        "Include rates with unstated terms",
+                        value=False)
                     ui.space()
                     ui.button("Apply filters", on_click=on_search).props(
                         "outline dense no-caps icon=sym_r_filter_alt")
                 ui.label(
-                    "Filters apply to live supplier results. Rates "
-                    "whose terms the supplier did not state are "
-                    "excluded by the strict filters rather than "
-                    "assumed to qualify."
+                    "Filters apply to live supplier results. Many "
+                    "suppliers omit the meal plan or cancellation "
+                    "terms; those rates are excluded rather than "
+                    "assumed to qualify. Tick 'include rates with "
+                    "unstated terms' to see them anyway - they are "
+                    "labelled as unstated on the card."
                 ).classes("text-xs tv-muted")
     return fields
 
@@ -252,19 +264,25 @@ def search_form(city: str, country: Optional[str], on_search) -> Dict:
 def apply_filters(grouped_items: list, fields: Dict[str, Any]) -> list:
     """Filter and sort (hotel_meta, rates) pairs from the widgets.
 
-    Deliberately conservative: a rate that does not state its board or
-    cancellation terms fails a strict filter instead of passing.
+    Conservative by default: a rate that does not state its board or
+    cancellation terms fails a strict filter instead of passing. The
+    user can opt in to seeing those rates, and
+    :func:`filter_report` explains what was removed so an empty result
+    is never a mystery.
     """
-    def raw(key, default=None):
-        """Accept either a NiceGUI widget or a plain value.
+    kept, _ = filter_with_report(grouped_items, fields)
+    return kept
 
-        Unwrapping only widgets meant a plain value fell through to the
-        default and the filter quietly did nothing.
-        """
+
+def filter_with_report(grouped_items: list,
+                       fields: Dict[str, Any]) -> tuple:
+    """Filter and also return a breakdown of what was excluded."""
+
+    def raw(key, default=None):
         if key not in fields:
             return default
         value = fields[key]
-        if hasattr(value, "value"):      # NiceGUI widget
+        if hasattr(value, "value"):
             value = value.value
         return default if value is None else value
 
@@ -275,36 +293,55 @@ def apply_filters(grouped_items: list, fields: Dict[str, Any]) -> list:
         except (TypeError, ValueError):
             return None
 
-    def flag(key):
-        return bool(raw(key, False))
-
-    def val(key, default=None):
-        return raw(key, default)
-
     price_min = num("price_min")
     price_max = num("price_max")
     per_night_max = num("per_night_max")
-    boards = val("boards", []) or []
-    min_stars = val("min_stars", 0) or 0
-    refundable_only = flag("refundable_only")
-    all_in_only = flag("taxes_included_only")
-    photo_only = flag("with_photo_only")
-    sort_by = val("sort", "Price: low to high")
+    boards = raw("boards", []) or []
+    min_stars = num("min_stars") or 0
+    min_score = num("min_score")
+    refundable_only = bool(raw("refundable_only", False))
+    all_in_only = bool(raw("taxes_included_only", False))
+    photo_only = bool(raw("with_photo_only", False))
+    allow_unstated = bool(raw("allow_unstated", False))
+    sort_by = raw("sort", "Price: low to high")
+
+    reasons = {
+        "over_budget": 0, "under_budget": 0, "per_night": 0,
+        "board_mismatch": 0, "board_unstated": 0,
+        "not_refundable": 0, "refund_unstated": 0,
+        "partial_total": 0, "stars": 0, "score": 0, "no_photo": 0,
+    }
 
     def rate_ok(offer) -> bool:
         if price_min is not None and offer.total_price < price_min:
+            reasons["under_budget"] += 1
             return False
         if price_max is not None and offer.total_price > price_max:
+            reasons["over_budget"] += 1
             return False
         if per_night_max is not None:
             per_night = offer.price_per_night
             if per_night is None or per_night > per_night_max:
+                reasons["per_night"] += 1
                 return False
-        if boards and offer.board_type not in boards:
-            return False
+        if boards:
+            if offer.board_type == "unknown":
+                if not allow_unstated:
+                    reasons["board_unstated"] += 1
+                    return False
+            elif offer.board_type not in boards:
+                reasons["board_mismatch"] += 1
+                return False
         if refundable_only and offer.refundable is not True:
-            return False
+            if offer.refundable is None:
+                if not allow_unstated:
+                    reasons["refund_unstated"] += 1
+                    return False
+            else:
+                reasons["not_refundable"] += 1
+                return False
         if all_in_only and not offer.taxes_included:
+            reasons["partial_total"] += 1
             return False
         return True
 
@@ -314,13 +351,24 @@ def apply_filters(grouped_items: list, fields: Dict[str, Any]) -> list:
         if not surviving:
             continue
         if photo_only and not hotel_meta.get("image"):
+            reasons["no_photo"] += 1
             continue
-        try:
-            stars = float(hotel_meta.get("rating") or 0)
-        except (TypeError, ValueError):
-            stars = 0.0
-        if min_stars and stars < float(min_stars):
-            continue
+        if min_stars:
+            try:
+                stars = float(hotel_meta.get("stars") or 0)
+            except (TypeError, ValueError):
+                stars = 0.0
+            if stars < min_stars:
+                reasons["stars"] += 1
+                continue
+        if min_score is not None:
+            try:
+                score = float(hotel_meta.get("rating") or 0)
+            except (TypeError, ValueError):
+                score = 0.0
+            if score < min_score:
+                reasons["score"] += 1
+                continue
         kept.append((hotel_meta, surviving))
 
     if sort_by == "Price: high to low":
@@ -332,7 +380,29 @@ def apply_filters(grouped_items: list, fields: Dict[str, Any]) -> list:
         kept.sort(key=lambda kv: (kv[0].get("name") or "").lower())
     else:
         kept.sort(key=lambda kv: kv[1][0].total_price)
-    return kept
+    return kept, reasons
+
+
+def filter_report(reasons: Dict[str, int]) -> str:
+    """A plain sentence explaining what the filters removed."""
+    labels = {
+        "over_budget": "above your budget",
+        "under_budget": "below your minimum",
+        "per_night": "above your per-night cap",
+        "board_mismatch": "a different meal plan",
+        "board_unstated": "no meal plan stated by the supplier",
+        "not_refundable": "non-refundable",
+        "refund_unstated": "no cancellation terms stated",
+        "partial_total": "taxes not included in the total",
+        "stars": "too few stars",
+        "score": "guest score below your minimum",
+        "no_photo": "no photo",
+    }
+    parts = [f"{count} {labels[key]}"
+             for key, count in reasons.items() if count]
+    if not parts:
+        return ""
+    return "Excluded: " + ", ".join(parts) + "."
 
 
 def hotel_offer_card(
@@ -369,14 +439,23 @@ def hotel_offer_card(
                                 hotel.get("city")) if p)
                 if location:
                     ui.label(location).classes("text-xs tv-muted")
+                bits = []
+                if hotel.get("stars"):
+                    try:
+                        bits.append(
+                            f"{float(hotel['stars']):.0f}-star")
+                    except (TypeError, ValueError):
+                        pass
                 if hotel.get("rating"):
-                    stars = f"{hotel['rating']}"
                     reviews = hotel.get("review_count")
-                    ui.label(
-                        f"Rated {stars}"
-                        + (f" from {reviews} reviews" if reviews else "")
-                        + " (supplier data)"
-                    ).classes("text-xs tv-muted")
+                    bits.append(
+                        f"guest score {hotel['rating']}/10"
+                        + (f" from {reviews} reviews" if reviews
+                           else ""))
+                if bits:
+                    ui.label(" - ".join(bits)
+                             + " (supplier data)").classes(
+                        "text-xs tv-muted")
                 ui.label(offer.room_name
                          or "Room type not stated").classes(
                     "text-sm pt-1")
@@ -954,6 +1033,7 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                     for key, value in (
                         ("name", top.hotel_name),
                         ("image", top.hotel_image),
+                        ("stars", top.hotel_stars),
                         ("rating", top.hotel_rating),
                         ("review_count", top.hotel_review_count),
                         ("address", top.hotel_address),
@@ -962,7 +1042,8 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                             hotel_meta[key] = value
                     pairs.append((hotel_meta, rates))
 
-                ranked = apply_filters(pairs, fields)
+                ranked, reasons = filter_with_report(
+                    pairs, fields)
 
                 # The user may have typed a property name rather than
                 # a city. Match it against what the supplier returned
@@ -1008,13 +1089,29 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                     f"prices from "
                     f"{', '.join(result.suppliers_tried)}"
                 ).classes("tv-mono text-xs tv-muted")
+                report = filter_report(reasons)
+                if report:
+                    ui.label(report).classes(
+                        "tv-mono text-[10px] tv-muted")
 
                 if not ranked:
                     ui.label(
-                        "No live rates match these filters. Widen the "
-                        "budget or clear a filter - we do not relax "
-                        "them silently."
+                        "No live rates match these filters. We do not "
+                        "relax them silently - here is exactly what "
+                        "was removed:"
                     ).classes("text-sm tv-muted")
+                    report = filter_report(reasons)
+                    if report:
+                        ui.label(report).classes(
+                            "tv-mono text-xs text-amber-700")
+                    if reasons.get("board_unstated") or \
+                            reasons.get("refund_unstated"):
+                        ui.label(
+                            "Most suppliers omit the meal plan and "
+                            "cancellation terms on many rates. Tick "
+                            "'include rates with unstated terms' in "
+                            "Filters to see those."
+                        ).classes("text-xs tv-muted")
 
                 for hotel_meta, rates in ranked:
                     top = rates[0]
@@ -1023,6 +1120,7 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                     for key, value in (
                         ("name", top.hotel_name),
                         ("image", top.hotel_image),
+                        ("stars", top.hotel_stars),
                         ("rating", top.hotel_rating),
                         ("review_count", top.hotel_review_count),
                         ("address", top.hotel_address),

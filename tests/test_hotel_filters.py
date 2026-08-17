@@ -22,12 +22,13 @@ def offer(total=300.0, board="breakfast", refundable=True,
 
 def pairs():
     return [
-        ({"name": "Cheap Inn", "rating": 3.0, "image": None},
+        ({"name": "Cheap Inn", "stars": 3.0, "rating": 6.4,
+          "image": None},
          [offer(150.0, board="room_only", refundable=False)]),
-        ({"name": "Mid Hotel", "rating": 4.2,
+        ({"name": "Mid Hotel", "stars": 4.0, "rating": 8.6,
           "image": "https://img/mid.jpg"},
          [offer(300.0), offer(360.0, board="half_board")]),
-        ({"name": "Grand Palace", "rating": 5.0,
+        ({"name": "Grand Palace", "stars": 5.0, "rating": 9.2,
           "image": "https://img/grand.jpg"},
          [offer(900.0, taxes_included=False)]),
     ]
@@ -66,7 +67,8 @@ def test_board_filter_excludes_unstated_terms():
 
 
 def test_refundable_only_rejects_unknown_terms():
-    unknown = [({"name": "Mystery", "rating": 4.0, "image": "x"},
+    unknown = [({"name": "Mystery", "stars": 4.0, "rating": 8.0,
+                 "image": "x"},
                 [offer(200.0, refundable=None)])]
     assert apply_filters(unknown, {"refundable_only": True}) == []
 
@@ -98,3 +100,62 @@ def test_combined_filters_can_empty_the_list():
     result = apply_filters(pairs(), {"price_max": 100,
                                      "min_stars": 5})
     assert result == []
+
+
+
+# ---------------------------------------------------------------
+# Stars and guest score are different scales and must not be mixed.
+# ---------------------------------------------------------------
+
+def test_stars_and_guest_score_are_separate_filters():
+    from app.ui.pages_hotels import apply_filters as af
+
+    # 5 stars only: one property.
+    assert [h["name"] for h, _ in af(pairs(), {"min_stars": 5})] == \
+        ["Grand Palace"]
+    # A guest score of 5 is low on a 0-10 scale and keeps everything -
+    # if these were conflated, this would wrongly drop 3- and 4-star
+    # hotels.
+    assert len(af(pairs(), {"min_score": 5})) == 3
+    assert [h["name"] for h, _ in af(pairs(), {"min_score": 9})] == \
+        ["Grand Palace"]
+
+
+def test_unstated_terms_can_be_included_deliberately():
+    from app.ui.pages_hotels import apply_filters as af
+
+    unstated = [({"name": "Mystery", "stars": 4.0, "image": "x"},
+                 [offer(200.0, board="unknown", refundable=None)])]
+    # Strict by default.
+    assert af(unstated, {"boards": ["breakfast"]}) == []
+    assert af(unstated, {"refundable_only": True}) == []
+    # Opt in explicitly.
+    assert len(af(unstated, {"boards": ["breakfast"],
+                             "allow_unstated": True})) == 1
+    assert len(af(unstated, {"refundable_only": True,
+                             "allow_unstated": True})) == 1
+
+
+def test_report_explains_an_empty_result():
+    from app.ui.pages_hotels import filter_report, filter_with_report
+
+    kept, reasons = filter_with_report(pairs(), {"price_max": 50})
+    assert kept == []
+    assert reasons["over_budget"] == 4
+    text = filter_report(reasons)
+    assert "above your budget" in text
+
+    kept, reasons = filter_with_report(
+        [({"name": "M", "image": "x"},
+          [offer(100.0, board="unknown")])],
+        {"boards": ["breakfast"]})
+    assert kept == []
+    assert "no meal plan stated" in filter_report(reasons)
+
+
+def test_report_is_empty_when_nothing_was_removed():
+    from app.ui.pages_hotels import filter_report, filter_with_report
+
+    kept, reasons = filter_with_report(pairs(), {})
+    assert len(kept) == 3
+    assert filter_report(reasons) == ""

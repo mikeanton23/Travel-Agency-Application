@@ -95,6 +95,9 @@ class NormalizedOffer:
     # UI never shows a room type where a hotel name belongs.
     hotel_name: Optional[str] = None
     hotel_image: Optional[str] = None
+    # Two different things that must never be conflated: stars are a
+    # 1-5 classification, the review score is a 0-10 guest average.
+    hotel_stars: Optional[float] = None
     hotel_rating: Optional[float] = None
     hotel_review_count: Optional[int] = None
     hotel_address: Optional[str] = None
@@ -112,6 +115,9 @@ class NormalizedOffer:
     # provider has it; left None when the supplier does not say.
     hotel_name: Optional[str] = None
     hotel_image: Optional[str] = None
+    # Two different things that must never be conflated: stars are a
+    # 1-5 classification, the review score is a 0-10 guest average.
+    hotel_stars: Optional[float] = None
     hotel_rating: Optional[float] = None
     hotel_review_count: Optional[int] = None
     hotel_address: Optional[str] = None
@@ -154,6 +160,7 @@ class NormalizedOffer:
             "room_name": self.room_name,
             "hotel_name": self.hotel_name,
             "hotel_image": self.hotel_image,
+            "hotel_stars": self.hotel_stars,
             "hotel_rating": self.hotel_rating,
             "hotel_review_count": self.hotel_review_count,
             "hotel_address": self.hotel_address,
@@ -174,6 +181,7 @@ class NormalizedOffer:
             "deep_link": self.deep_link,
             "hotel_name": self.hotel_name,
             "hotel_image": self.hotel_image,
+            "hotel_stars": self.hotel_stars,
             "hotel_rating": self.hotel_rating,
             "hotel_review_count": self.hotel_review_count,
             "hotel_address": self.hotel_address,
