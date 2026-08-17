@@ -38,7 +38,8 @@ from app.services.seo import (
 )
 from app.ui.components.layout import page_shell
 from app.ui.helpers import (
-    client_gone, element_alive, safe_clear,
+    client_gone, element_alive, looks_like_property_name,
+    name_relevance, safe_clear,
 )
 
 CURATED = [
@@ -158,6 +159,16 @@ def search_form(city: str, country: Optional[str], on_search) -> Dict:
                     value="EUR").props("dense outlined").classes("w-28")
             ui.button("Search hotels", on_click=on_search).props(
                 "unelevated color=primary icon=sym_r_search no-caps")
+
+        with ui.row().classes("w-full gap-3 items-end"):
+            with ui.column().classes("gap-0 flex-grow"):
+                ui.label("Hotel name contains").classes(
+                    "tv-mono text-[10px] tv-muted uppercase")
+                fields["hotel_name"] = ui.input(
+                    placeholder="e.g. Hampton Inn Eden Prairie",
+                ).props("dense outlined clearable").classes("w-full")
+            ui.button("Find", on_click=on_search).props(
+                "outline dense no-caps icon=sym_r_manage_search")
 
         with ui.expansion("Filters", icon="sym_r_tune").classes(
             "w-full"
@@ -721,8 +732,9 @@ def hotels_hub() -> None:
                 "tv-display text-xl font-semibold")
             with ui.row().classes("w-full gap-2 items-center"):
                 place_in = ui.input(
-                    placeholder="City, region or country - e.g. "
-                                "Kyoto, Reykjavik, Cape Town"
+                    placeholder="City, country, or a hotel name - "
+                                "e.g. Kyoto, or Hampton Inn Eden "
+                                "Prairie"
                 ).props("dense outlined clearable").classes(
                     "flex-grow")
 
@@ -878,8 +890,14 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                 radius_km = int(fields["radius_km"].value or 15)
             except (TypeError, ValueError):
                 radius_km = 15
-            hotel_search_service.radius_m = max(
-                1000, min(100000, radius_km * 1000))
+            # A property-name search geocodes to the hotel itself, so
+            # a wide radius is unnecessary; a city search benefits from
+            # the user's chosen radius.
+            if looks_like_property_name(city):
+                hotel_search_service.radius_m = 8000
+            else:
+                hotel_search_service.radius_m = max(
+                    1000, min(100000, radius_km * 1000))
 
             analytics.track("hotel_search", destination=city,
                             session_hash=session_hash(_client_key()),
@@ -945,8 +963,45 @@ def _render_city_page(city_slug: str, country_slug: Optional[str]) -> None:
                     pairs.append((hotel_meta, rates))
 
                 ranked = apply_filters(pairs, fields)
+
+                # The user may have typed a property name rather than
+                # a city. Match it against what the supplier returned
+                # and lead with the property they asked for.
+                wanted_name = (fields["hotel_name"].value or "").strip()
+                if not wanted_name and looks_like_property_name(city):
+                    wanted_name = city
+                matched = []
+                if wanted_name:
+                    scored = [
+                        (name_relevance(wanted_name,
+                                        meta.get("name") or ""), meta,
+                         rates)
+                        for meta, rates in ranked
+                    ]
+                    matched = [(m, r) for score, m, r in
+                               sorted(scored, key=lambda x: -x[0])
+                               if score >= 0.6]
+                    if matched:
+                        ranked = matched + [
+                            (m, r) for _, m, r in scored
+                            if (m, r) not in matched
+                        ]
+
                 total_rates = sum(len(r) for _, r in ranked)
 
+                if wanted_name:
+                    if matched:
+                        ui.label(
+                            f"{len(matched)} property match"
+                            + ("es" if len(matched) != 1 else "")
+                            + f" for \"{wanted_name}\" - shown first"
+                        ).classes("tv-mono text-xs text-primary")
+                    else:
+                        ui.label(
+                            f"No property matching \"{wanted_name}\" "
+                            f"was returned for these dates. Nearby "
+                            f"availability is listed below."
+                        ).classes("tv-mono text-xs tv-muted")
                 ui.label(
                     f"{len(ranked)} properties, {total_rates} live "
                     f"rates (of {len(result.offers)} returned) - "

@@ -80,3 +80,52 @@ def test_safe_clear_only_clears_live_elements():
                         element_id=7)
     assert safe_clear(live) is True
     assert live.cleared is True
+
+
+# ---------------------------------------------------------------
+# Property-name search: a user may type a hotel, not a city.
+# ---------------------------------------------------------------
+
+def test_filler_words_are_ignored_when_matching():
+    from app.ui.helpers import name_tokens
+
+    # Every chain repeats these; matching on them would make all
+    # Hampton Inns look identical.
+    assert name_tokens("Hampton Inn Eden Prairie") == {
+        "hampton", "eden", "prairie"}
+    assert name_tokens("The Hotel") == set()
+
+
+def test_property_name_is_detected():
+    from app.ui.helpers import looks_like_property_name
+
+    assert looks_like_property_name(
+        "Hampton Inn Eden Prairie Minneapolis")
+    assert looks_like_property_name("Best Western Plus Normandy Inn")
+    # Plain city names must not be mistaken for properties.
+    assert not looks_like_property_name("Athens")
+    assert not looks_like_property_name("New York")
+    assert not looks_like_property_name("")
+
+
+def test_relevance_ranks_the_right_property_first():
+    from app.ui.helpers import name_relevance
+
+    query = "Hampton Inn Eden Prairie Minneapolis"
+    exact = name_relevance(query,
+                           "Hampton Inn Minneapolis-Eden Prairie")
+    other_chain = name_relevance(
+        query, "La Quinta by Wyndham Minneapolis-Minnetonka")
+    same_chain_elsewhere = name_relevance(
+        query, "Hampton Inn Chicago Downtown")
+
+    assert exact == 1.0
+    assert exact > same_chain_elsewhere > 0
+    assert same_chain_elsewhere > other_chain or other_chain < 0.5
+
+
+def test_relevance_is_zero_without_a_query():
+    from app.ui.helpers import name_relevance
+
+    assert name_relevance("", "Hampton Inn") == 0.0
+    assert name_relevance("Hampton Inn", "") == 0.0

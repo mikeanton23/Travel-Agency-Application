@@ -63,3 +63,57 @@ def safe_clear(element) -> bool:
     except Exception as exc:
         return not client_gone(exc) and False
     return True
+
+
+def name_tokens(value: str) -> set:
+    """Comparable words from a place or property name.
+
+    Chain names repeat filler ("hotel", "inn", "by", "the"), so those
+    are dropped: matching on them would make every Hampton Inn look
+    like every other one.
+    """
+    import re
+
+    filler = {
+        "hotel", "hotels", "inn", "suites", "suite", "resort", "the",
+        "by", "and", "at", "of", "a", "an", "spa", "motel", "lodge",
+        "house", "collection", "group", "hostel", "apartments",
+        "apartment", "guesthouse", "residence", "plaza", "center",
+        "centre",
+    }
+    words = re.findall(r"[a-z0-9]+", (value or "").lower())
+    return {w for w in words if w not in filler and len(w) > 1}
+
+
+def name_relevance(query: str, candidate: str) -> float:
+    """How well a candidate name answers a query, from 0 to 1.
+
+    Used to decide whether the user typed a property name rather than
+    a city, and to surface that property first if so.
+    """
+    wanted = name_tokens(query)
+    if not wanted:
+        return 0.0
+    found = name_tokens(candidate)
+    if not found:
+        return 0.0
+    overlap = wanted & found
+    return len(overlap) / len(wanted)
+
+
+def looks_like_property_name(query: str) -> bool:
+    """Whether a search term reads like a specific property.
+
+    Two or more meaningful words plus a chain or property keyword is a
+    strong hint the user wants one hotel, not a whole city.
+    """
+    import re
+
+    words = re.findall(r"[a-z0-9]+", (query or "").lower())
+    if len(words) < 3:
+        return False
+    markers = {
+        "hotel", "inn", "suites", "resort", "motel", "lodge", "hostel",
+        "apartments", "guesthouse", "residence", "spa", "villa",
+    }
+    return bool(set(words) & markers)
