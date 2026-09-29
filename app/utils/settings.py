@@ -109,20 +109,23 @@ class Settings(BaseSettings):
 
     @property
     def resolved_db_url(self) -> str:
-        """Connection string, tolerant of hosting-platform formats.
+        """Connection string, normalised to the driver we install.
 
-        Render/Fly/Heroku inject DATABASE_URL and still use the legacy
-        ``postgres://`` scheme, which SQLAlchemy 2 rejects.
+        Hosting platforms hand out several forms - postgres://,
+        postgresql://, and sometimes postgresql+psycopg:// for the
+        psycopg 3 driver. This project ships psycopg2, so any
+        Postgres URL is rewritten to use it rather than failing at
+        import with ModuleNotFoundError.
         """
         import os
+        import re
 
         raw = (self.db_url or os.getenv("DATABASE_URL", "")).strip()
-        if raw.startswith("postgres://"):
-            raw = raw.replace("postgres://",
-                              "postgresql+psycopg2://", 1)
-        elif raw.startswith("postgresql://"):
-            raw = raw.replace("postgresql://",
-                              "postgresql+psycopg2://", 1)
+        if not raw:
+            return raw
+        # Strip any explicit driver, then pin psycopg2.
+        raw = re.sub(r"^postgres(ql)?(\+\w+)?://",
+                     "postgresql+psycopg2://", raw)
         return raw
 
     @property
