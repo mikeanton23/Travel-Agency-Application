@@ -11,6 +11,7 @@ APP_SECRET_KEY via NiceGUI's storage_secret). Guards redirect to
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Optional
 
 from nicegui import app, ui
@@ -26,6 +27,8 @@ from app.services.key_manager import KeyManager
 from app.services.metrics import metrics
 from app.ui.components.cards import destination_card
 from app.ui.components.layout import page_shell
+
+logger = logging.getLogger("aevyra.auth")
 
 
 # ----------------------------------------------------------------------
@@ -86,7 +89,13 @@ def login_page() -> None:
                         password_toggle_button=True,
                     ).classes("w-full")
 
+                    status_in = ui.label("").classes("text-sm")
+
                     async def do_login() -> None:
+                        logger.info("Sign-in attempt for %r",
+                                    email_in.value)
+                        status_in.set_text("Signing in...")
+                        status_in.classes(replace="text-sm tv-muted")
                         try:
                             user = await asyncio.to_thread(
                                 auth_service.authenticate,
@@ -94,7 +103,21 @@ def login_page() -> None:
                                 _client_key(),
                             )
                         except AuthError as exc:
+                            logger.info("Sign-in rejected: %s", exc)
+                            status_in.set_text(str(exc))
+                            status_in.classes(
+                                replace="text-sm text-red-600")
                             ui.notify(str(exc), type="negative")
+                            return
+                        except Exception as exc:
+                            logger.exception("Sign-in failed")
+                            message = (f"Could not sign in "
+                                       f"({type(exc).__name__}).")
+                            status_in.set_text(message)
+                            status_in.classes(
+                                replace="text-sm text-red-600")
+                            ui.notify(message, type="negative",
+                                      timeout=10000)
                             return
                         app.storage.user["auth"] = {
                             "user_id": user.id, "email": user.email,
@@ -116,7 +139,13 @@ def login_page() -> None:
                         password_toggle_button=True,
                     ).classes("w-full")
 
+                    status_r = ui.label("").classes("text-sm")
+
                     async def do_register() -> None:
+                        logger.info("Registration attempt for %r",
+                                    email_r.value)
+                        status_r.set_text("Creating account...")
+                        status_r.classes(replace="text-sm tv-muted")
                         try:
                             user = await asyncio.to_thread(
                                 auth_service.register,
@@ -124,8 +153,26 @@ def login_page() -> None:
                                 name_r.value,
                             )
                         except AuthError as exc:
+                            logger.info("Registration rejected: %s", exc)
+                            status_r.set_text(str(exc))
+                            status_r.classes(
+                                replace="text-sm text-red-600")
                             ui.notify(str(exc), type="negative")
                             return
+                        except Exception as exc:
+                            # Previously only AuthError was caught, so
+                            # any other failure vanished and the button
+                            # looked dead. Never fail silently again.
+                            logger.exception("Registration failed")
+                            message = (f"Could not create the account "
+                                       f"({type(exc).__name__}).")
+                            status_r.set_text(message)
+                            status_r.classes(
+                                replace="text-sm text-red-600")
+                            ui.notify(message, type="negative",
+                                      timeout=10000)
+                            return
+                        logger.info("Registered user id=%s", user.id)
                         app.storage.user["auth"] = {
                             "user_id": user.id, "email": user.email,
                             "display_name": user.display_name,
@@ -234,7 +281,7 @@ def account_page() -> None:
                 ui.label("Favorites").classes("text-lg font-semibold")
                 if not favorites:
                     ui.label(
-                        "No favorites yet — tap the heart on any "
+                        "No favorites yet  tap the heart on any "
                         "destination."
                     ).classes("opacity-60 text-sm")
                 with ui.element("div").classes(
@@ -252,7 +299,7 @@ def account_page() -> None:
                 ui.label("Trips").classes("text-lg font-semibold mt-2")
                 with ui.row().classes("w-full gap-2 items-center"):
                     trip_title = ui.input(
-                        placeholder="New trip title…"
+                        placeholder="New trip title..."
                     ).classes("flex-grow")
 
                     async def add_trip() -> None:
@@ -398,7 +445,7 @@ def admin_page() -> None:
                 if status["ok"]:
                     ui.label("Connected").classes("text-green-6")
                     ui.label(
-                        f"{status['users']} users · "
+                        f"{status['users']} users  "
                         f"{status['destinations']} destinations"
                     ).classes("text-sm opacity-70")
                 else:
@@ -417,8 +464,8 @@ def admin_page() -> None:
                     else f"{rate * 100:.0f}% hit rate"
                 )
                 ui.label(
-                    f"{stats['hits']} hits · {stats['misses']} misses "
-                    f"· {stats['memory_entries']} in memory · "
+                    f"{stats['hits']} hits  {stats['misses']} misses "
+                    f" {stats['memory_entries']} in memory  "
                     f"DB tier {'on' if stats['db_tier'] else 'off'}"
                 ).classes("text-sm opacity-70")
 
@@ -449,7 +496,7 @@ def admin_page() -> None:
                 for row in recent:
                     ui.label(
                         f"[{row['at'] or '?'}] {row['provider']} "
-                        f"{row['method']} {row['host']} → "
+                        f"{row['method']} {row['host']}  "
                         f"{row['status']} ({row['duration_ms']}ms)"
                     ).classes(
                         "text-xs font-mono"
@@ -507,9 +554,9 @@ def admin_page() -> None:
                         )
 
         async def key_health() -> None:
-            ui.notify("Validating all configured provider keys…")
+            ui.notify("Validating all configured provider keys...")
             await KeyManager().health()
-            ui.notify("Provider health updated — see Settings",
+            ui.notify("Provider health updated  see Settings",
                       type="positive")
 
         with ui.row().classes("gap-2"):
