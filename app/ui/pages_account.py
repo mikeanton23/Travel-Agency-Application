@@ -95,7 +95,7 @@ def login_page() -> None:
                         logger.info("Sign-in attempt for %r",
                                     email_in.value)
                         status_in.set_text("Signing in...")
-                        status_in.classes(replace="text-sm tv-muted")
+                        status_in.style("color: inherit")
                         try:
                             user = await asyncio.to_thread(
                                 auth_service.authenticate,
@@ -105,8 +105,7 @@ def login_page() -> None:
                         except AuthError as exc:
                             logger.info("Sign-in rejected: %s", exc)
                             status_in.set_text(str(exc))
-                            status_in.classes(
-                                replace="text-sm text-red-600")
+                            status_in.style("color: #dc2626")
                             ui.notify(str(exc), type="negative")
                             return
                         except Exception as exc:
@@ -114,8 +113,7 @@ def login_page() -> None:
                             message = (f"Could not sign in "
                                        f"({type(exc).__name__}).")
                             status_in.set_text(message)
-                            status_in.classes(
-                                replace="text-sm text-red-600")
+                            status_in.style("color: #dc2626")
                             ui.notify(message, type="negative",
                                       timeout=10000)
                             return
@@ -145,7 +143,7 @@ def login_page() -> None:
                         logger.info("Registration attempt for %r",
                                     email_r.value)
                         status_r.set_text("Creating account...")
-                        status_r.classes(replace="text-sm tv-muted")
+                        status_r.style("color: inherit")
                         try:
                             user = await asyncio.to_thread(
                                 auth_service.register,
@@ -155,8 +153,7 @@ def login_page() -> None:
                         except AuthError as exc:
                             logger.info("Registration rejected: %s", exc)
                             status_r.set_text(str(exc))
-                            status_r.classes(
-                                replace="text-sm text-red-600")
+                            status_r.style("color: #dc2626")
                             ui.notify(str(exc), type="negative")
                             return
                         except Exception as exc:
@@ -167,8 +164,7 @@ def login_page() -> None:
                             message = (f"Could not create the account "
                                        f"({type(exc).__name__}).")
                             status_r.set_text(message)
-                            status_r.classes(
-                                replace="text-sm text-red-600")
+                            status_r.style("color: #dc2626")
                             ui.notify(message, type="negative",
                                       timeout=10000)
                             return
