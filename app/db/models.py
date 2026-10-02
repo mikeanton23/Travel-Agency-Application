@@ -131,7 +131,7 @@ class TravelPlan(Base):
     )
 
 # ==========================================================
-# PHASE 2 – API CACHE (persistent tier of cache_service)
+# PHASE 2  API CACHE (persistent tier of cache_service)
 # ==========================================================
 
 
@@ -163,7 +163,7 @@ class ApiCache(Base):
 
 
 # ==========================================================
-# PHASE 1 – NORMALIZED SCHEMA
+# PHASE 1  NORMALIZED SCHEMA
 # ==========================================================
 # Geo hierarchy, users, trips, favorites, reviews, events,
 # encrypted API keys, AI conversations, weather cache.
@@ -317,6 +317,12 @@ class User(Base):
     display_name = Column(String(120))
     is_admin = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    # Agency role: agent | manager | admin. is_admin is kept so older
+    # checks keep working; manager and admin both see the whole office.
+    role = Column(String(20), nullable=False, default="agent")
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="SET NULL"))
+    phone = Column(String(60))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_login_at = Column(DateTime(timezone=True))
 
@@ -521,7 +527,7 @@ class AiMessage(Base):
 
 
 # ==========================================================
-# PHASE 3 – RAG KNOWLEDGE BASE
+# PHASE 3  RAG KNOWLEDGE BASE
 # ==========================================================
 
 
@@ -579,12 +585,12 @@ class KbChunk(Base):
 
 
 # ==========================================================
-# PHASE 5 – MONITORING & NOTIFICATIONS
+# PHASE 5  MONITORING & NOTIFICATIONS
 # ==========================================================
 
 
 class ApiUsageLog(Base):
-    """One row per outbound API call — the admin dashboard's raw data.
+    """One row per outbound API call  the admin dashboard's raw data.
 
     Written best-effort by the metrics recorder hooked into
     ``HttpJsonClient``; requests never fail because logging failed.
@@ -623,266 +629,211 @@ class Notification(Base):
     )
 
 
+
 # ==========================================================
-# HOTEL ACQUISITION — inventory, offers, leads, payments
+# AGENCY: offices, agents, clients, quotes, cash
 # ==========================================================
-# Additive: the existing Hotel model (Phase 1) is unchanged and is
-# referenced by these tables.
+# Each agent keeps their own client book; managers and admins see the
+# whole office. Receipts from every agent land in one office cash
+# account so the balance is tracked centrally.
 
 
-class HotelProvider(Base):
-    """A configured hotel supplier (amadeus, hotelbeds, expedia…)."""
-
-    __tablename__ = "hotel_providers"
+class Agency(Base):
+    __tablename__ = "agencies"
 
     id = Column(Integer, primary_key=True)
-    code = Column(String(40), nullable=False, unique=True)
-    label = Column(String(120), nullable=False)
-    enabled = Column(Boolean, nullable=False, default=False)
-    priority = Column(Integer, nullable=False, default=100)
-    last_success_at = Column(DateTime(timezone=True))
-    last_error = Column(Text)
-    last_error_at = Column(DateTime(timezone=True))
-    rate_limit_note = Column(String(200))
+    name = Column(String(200), nullable=False)
+    legal_name = Column(String(200))
+    vat_number = Column(String(40))
+    address = Column(Text)
+    phone = Column(String(60))
+    email = Column(String(255))
+    # Greek VAT on service charges for domestic services.
+    default_vat_rate = Column(Float, nullable=False, default=24.0)
+    home_country_code = Column(String(2), nullable=False, default="GR")
+    currency = Column(String(3), nullable=False, default="EUR")
+    invoice_prefix = Column(String(10), nullable=False, default="INV")
+    voucher_prefix = Column(String(10), nullable=False, default="VCH")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
-class HotelRoom(Base):
-    __tablename__ = "hotel_rooms"
+class Client(Base):
+    """A traveller or company on an agent's book."""
+
+    __tablename__ = "clients"
 
     id = Column(Integer, primary_key=True)
-    hotel_id = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"),
-                      nullable=False)
-    external_id = Column(String(120))
-    name = Column(String(200), nullable=False)
-    max_occupancy = Column(Integer)
-    bed_type = Column(String(80))
-    size_sqm = Column(Float)
-    amenities = Column(JSON)
-
-    __table_args__ = (
-        Index("ix_hotel_rooms_hotel_id", "hotel_id"),
-    )
-
-
-class HotelOffer(Base):
-    """A normalized, real supplier quote. Never written unless it came
-    from a live provider response; ``expires_at`` governs staleness."""
-
-    __tablename__ = "hotel_offers"
-
-    id = Column(Integer, primary_key=True)
-    hotel_id = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"),
-                      nullable=False)
-    supplier = Column(String(40), nullable=False)
-    room_id = Column(String(120))
-    room_name = Column(String(200))
-    board_type = Column(String(40))        # room_only/breakfast/half…
-    occupancy = Column(Integer, nullable=False, default=2)
-    check_in = Column(String(10), nullable=False)   # ISO date
-    check_out = Column(String(10), nullable=False)
-    nights = Column(Integer, nullable=False)
-    currency = Column(String(3), nullable=False)
-    base_price = Column(Float)
-    taxes = Column(Float)
-    fees = Column(Float)
-    total_price = Column(Float, nullable=False)
-    cancellation_policy = Column(String(200))
-    refundable = Column(Boolean)
-    availability = Column(Boolean, nullable=False, default=True)
-    deep_link = Column(Text)
-    retrieved_at = Column(DateTime(timezone=True), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (
-        Index("ix_hotel_offers_lookup",
-              "hotel_id", "check_in", "check_out", "occupancy"),
-        Index("ix_hotel_offers_expires", "expires_at"),
-    )
-
-
-class HotelOfferRequest(Base):
-    """A customer lead: 'can you beat this price?'"""
-
-    __tablename__ = "hotel_offer_requests"
-
-    id = Column(Integer, primary_key=True)
-    customer_name = Column(String(160), nullable=False)
-    customer_email = Column(String(255), nullable=False)
-    customer_phone = Column(String(60))
-    destination = Column(String(160))
-    hotel_id = Column(Integer, ForeignKey("hotels.id", ondelete="SET NULL"))
-    hotel_name = Column(String(200))
-    check_in = Column(String(10))
-    check_out = Column(String(10))
-    guests = Column(Integer, default=2)
-    rooms = Column(Integer, default=1)
-    room_type = Column(String(200))
-    meal_plan = Column(String(40))
-    current_provider = Column(String(80))
-    competitor_price = Column(Float)
-    currency = Column(String(3))
-    competitor_url = Column(Text)
-    customer_message = Column(Text)
-    consent = Column(Boolean, nullable=False, default=False)
-    status = Column(String(30), nullable=False, default="new")
-    assigned_to = Column(Integer,
-                         ForeignKey("users.id", ondelete="SET NULL"))
-    internal_notes = Column(Text)
-    offer_deadline = Column(DateTime(timezone=True))
-    source_page = Column(String(250))
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="CASCADE"),
+                       nullable=False)
+    # The agent who owns this relationship. Other agents cannot see it
+    # unless they are a manager or admin.
+    owner_agent_id = Column(Integer,
+                            ForeignKey("users.id", ondelete="SET NULL"))
+    full_name = Column(String(200), nullable=False)
+    company_name = Column(String(200))
+    email = Column(String(255))
+    phone = Column(String(60))
+    vat_number = Column(String(40))
+    tax_office = Column(String(120))
+    address = Column(Text)
+    passport_number = Column(String(60))
+    passport_expiry = Column(String(10))
+    date_of_birth = Column(String(10))
+    nationality = Column(String(80))
+    notes = Column(Text)
+    consent_marketing = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True),
                         server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index("ix_hotel_offer_requests_status_created",
-              "status", "created_at"),
+        Index("ix_clients_agency_owner", "agency_id", "owner_agent_id"),
+        Index("ix_clients_name", "full_name"),
     )
 
 
-class CompetitorComparison(Base):
-    """Evidence backing any 'cheaper than X' claim. No row, no claim."""
-
-    __tablename__ = "competitor_comparisons"
+class ClientNote(Base):
+    __tablename__ = "client_notes"
 
     id = Column(Integer, primary_key=True)
-    hotel_id = Column(Integer, ForeignKey("hotels.id", ondelete="CASCADE"))
-    our_offer_id = Column(Integer,
-                          ForeignKey("customer_offers.id",
-                                     ondelete="CASCADE"))
-    competitor = Column(String(80), nullable=False)
-    competitor_price = Column(Float, nullable=False)
-    competitor_currency = Column(String(3), nullable=False)
-    competitor_room = Column(String(200))
-    competitor_board = Column(String(40))
-    competitor_cancellation = Column(String(200))
-    competitor_taxes = Column(Float)
-    competitor_total = Column(Float, nullable=False)
-    comparison_timestamp = Column(DateTime(timezone=True),
-                                  nullable=False)
-    source_type = Column(String(40), nullable=False)  # supplier_api/
-    # customer_reported/manual_staff_check
-    verification_status = Column(String(30), nullable=False,
-                                 default="unverified")
+    client_id = Column(Integer,
+                       ForeignKey("clients.id", ondelete="CASCADE"),
+                       nullable=False)
+    author_id = Column(Integer,
+                       ForeignKey("users.id", ondelete="SET NULL"))
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_client_notes_client", "client_id"),)
 
 
-class CustomerOffer(Base):
-    """A staff-prepared offer delivered by secure token link."""
+class Quote(Base):
+    """A multi-service itinerary priced for one client."""
 
-    __tablename__ = "customer_offers"
+    __tablename__ = "quotes"
 
     id = Column(Integer, primary_key=True)
-    request_id = Column(Integer,
-                        ForeignKey("hotel_offer_requests.id",
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="CASCADE"),
+                       nullable=False)
+    client_id = Column(Integer,
+                       ForeignKey("clients.id", ondelete="SET NULL"))
+    agent_id = Column(Integer,
+                      ForeignKey("users.id", ondelete="SET NULL"))
+    reference = Column(String(30), nullable=False, unique=True)
+    title = Column(String(250))
+    status = Column(String(30), nullable=False, default="draft")
+    currency = Column(String(3), nullable=False, default="EUR")
+    travel_start = Column(String(10))
+    travel_end = Column(String(10))
+    pax_adults = Column(Integer, nullable=False, default=1)
+    pax_children = Column(Integer, nullable=False, default=0)
+    notes = Column(Text)
+    terms = Column(Text)
+    valid_until = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
+
+    items = relationship("QuoteItem", back_populates="quote",
+                         cascade="all, delete-orphan",
+                         order_by="QuoteItem.position")
+
+    __table_args__ = (
+        Index("ix_quotes_agency_status", "agency_id", "status"),
+        Index("ix_quotes_agent", "agent_id"),
+    )
+
+
+class QuoteItem(Base):
+    """One service line: hotel, ticket, transfer, car hire or tour.
+
+    ``net_cost`` is what the supplier charges. ``service_charge`` is
+    what the agency adds and is entered by the agent, never computed
+    by the system. ``is_domestic`` drives whether VAT applies.
+    """
+
+    __tablename__ = "quote_items"
+
+    id = Column(Integer, primary_key=True)
+    quote_id = Column(Integer, ForeignKey("quotes.id",
+                                          ondelete="CASCADE"),
+                      nullable=False)
+    position = Column(Integer, nullable=False, default=0)
+    service_type = Column(String(20), nullable=False)
+    title = Column(String(250), nullable=False)
+    description = Column(Text)
+    supplier = Column(String(120))
+    supplier_reference = Column(String(120))
+    starts_on = Column(String(10))
+    ends_on = Column(String(10))
+    quantity = Column(Integer, nullable=False, default=1)
+    pax = Column(Integer)
+    net_cost = Column(Float, nullable=False, default=0.0)
+    service_charge = Column(Float, nullable=False, default=0.0)
+    vat_rate = Column(Float, nullable=False, default=0.0)
+    is_domestic = Column(Boolean, nullable=False, default=False)
+    currency = Column(String(3), nullable=False, default="EUR")
+    details = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    quote = relationship("Quote", back_populates="items")
+
+    __table_args__ = (
+        Index("ix_quote_items_quote", "quote_id"),
+    )
+
+
+class CashAccount(Base):
+    """One office account per agency; every receipt lands here."""
+
+    __tablename__ = "cash_accounts"
+
+    id = Column(Integer, primary_key=True)
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="CASCADE"),
+                       nullable=False)
+    name = Column(String(120), nullable=False, default="Office account")
+    currency = Column(String(3), nullable=False, default="EUR")
+    opening_balance = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("agency_id", "name", name="uq_cash_account"),
+    )
+
+
+class CashMovement(Base):
+    """An immutable ledger line. Corrections are new reversing rows,
+    never edits, so the office balance can always be reconstructed."""
+
+    __tablename__ = "cash_movements"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer,
+                        ForeignKey("cash_accounts.id",
                                    ondelete="CASCADE"),
                         nullable=False)
-    token_hash = Column(String(64), nullable=False, unique=True)
-    hotel_name = Column(String(200), nullable=False)
-    room_description = Column(String(250))
-    board_type = Column(String(40))
-    check_in = Column(String(10))
-    check_out = Column(String(10))
-    guests = Column(Integer)
-    rooms = Column(Integer)
-    conditions = Column(Text)
-    cancellation_policy = Column(String(250))
-    reference_price = Column(Float)      # only if verified comparable
-    our_price = Column(Float, nullable=False)
-    currency = Column(String(3), nullable=False)
-    status = Column(String(30), nullable=False, default="prepared")
-    created_by = Column(Integer, ForeignKey("users.id",
-                                            ondelete="SET NULL"))
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    sent_at = Column(DateTime(timezone=True))
-    opened_at = Column(DateTime(timezone=True))
-    revoked_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        Index("ix_customer_offers_request", "request_id"),
-    )
-
-
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id = Column(Integer, primary_key=True)
-    offer_id = Column(Integer,
-                      ForeignKey("customer_offers.id",
-                                 ondelete="CASCADE"),
-                      nullable=False)
-    provider = Column(String(40), nullable=False, default="stripe")
-    provider_payment_id = Column(String(200))
-    provider_session_id = Column(String(200))
+    agent_id = Column(Integer,
+                      ForeignKey("users.id", ondelete="SET NULL"))
+    client_id = Column(Integer,
+                       ForeignKey("clients.id", ondelete="SET NULL"))
+    quote_id = Column(Integer,
+                      ForeignKey("quotes.id", ondelete="SET NULL"))
+    direction = Column(String(3), nullable=False)      # in | out
+    method = Column(String(20), nullable=False)        # cash|card|iris
     amount = Column(Float, nullable=False)
-    currency = Column(String(3), nullable=False)
-    status = Column(String(20), nullable=False, default="pending")
-    failure_reason = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    paid_at = Column(DateTime(timezone=True))
-
-    __table_args__ = (
-        Index("ix_payments_offer", "offer_id"),
-        Index("ix_payments_provider_id", "provider_payment_id"),
-    )
-
-
-class EmailLog(Base):
-    __tablename__ = "email_log"
-
-    id = Column(Integer, primary_key=True)
-    to_email = Column(String(255), nullable=False)
-    subject = Column(String(300), nullable=False)
-    kind = Column(String(50), nullable=False)
-    request_id = Column(Integer,
-                        ForeignKey("hotel_offer_requests.id",
-                                   ondelete="SET NULL"))
-    offer_id = Column(Integer,
-                      ForeignKey("customer_offers.id",
-                                 ondelete="SET NULL"))
-    provider = Column(String(40))
-    success = Column(Boolean, nullable=False, default=False)
-    error = Column(Text)
+    currency = Column(String(3), nullable=False, default="EUR")
+    reference = Column(String(120))
+    description = Column(Text)
+    reverses_id = Column(Integer,
+                         ForeignKey("cash_movements.id",
+                                    ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        Index("ix_email_log_created", "created_at"),
-    )
-
-
-class SearchEvent(Base):
-    """Privacy-conscious funnel analytics: no PII, no raw IPs."""
-
-    __tablename__ = "search_events"
-
-    id = Column(Integer, primary_key=True)
-    event = Column(String(50), nullable=False)
-    destination = Column(String(160))
-    hotel_id = Column(Integer)
-    session_hash = Column(String(64))     # salted hash, not an identity
-    attributes = Column(JSON)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        Index("ix_search_events_event_created", "event", "created_at"),
-    )
-
-
-class OfferEvent(Base):
-    __tablename__ = "offer_events"
-
-    id = Column(Integer, primary_key=True)
-    offer_id = Column(Integer,
-                      ForeignKey("customer_offers.id",
-                                 ondelete="CASCADE"))
-    request_id = Column(Integer,
-                        ForeignKey("hotel_offer_requests.id",
-                                   ondelete="CASCADE"))
-    event = Column(String(50), nullable=False)
-    detail = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (
-        Index("ix_offer_events_offer", "offer_id"),
+        Index("ix_cash_movements_account_created",
+              "account_id", "created_at"),
+        Index("ix_cash_movements_agent", "agent_id"),
     )
