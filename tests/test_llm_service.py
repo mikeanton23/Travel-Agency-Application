@@ -184,6 +184,10 @@ def test_ollama_offered_locally(monkeypatch):
     from app.utils import settings as settings_module
 
     settings_module.get_settings.cache_clear()
+    import app.utils.config as config
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
     service = LLMService(key_resolver=lambda p: None)
