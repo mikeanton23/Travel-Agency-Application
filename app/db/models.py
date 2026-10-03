@@ -1090,3 +1090,174 @@ class CashMovement(Base):
               "account_id", "created_at"),
         Index("ix_cash_movements_agent", "agent_id"),
     )
+
+
+# ==========================================================
+# AGENCY PHASE B: bookings, documents, invoice numbering
+# ==========================================================
+# Confirmation is per service line: until the agency holds GDS or
+# bed-bank contracts, the agent books in the supplier's own system and
+# records the PNR or voucher reference here. A supplier adapter can
+# fill it automatically later without changing this shape.
+
+class Booking(Base):
+    """A confirmed sale. Created from a quote, then worked per line.
+
+    Confirmation today is recorded by the agent from the supplier's own
+    system (PNR, voucher number). The supplier adapter can take that
+    over per supplier later without changing this shape.
+    """
+
+    __tablename__ = "bookings"
+
+    id = Column(Integer, primary_key=True)
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="CASCADE"),
+                       nullable=False)
+    quote_id = Column(Integer,
+                      ForeignKey("quotes.id", ondelete="SET NULL"))
+    client_id = Column(Integer,
+                       ForeignKey("clients.id", ondelete="SET NULL"))
+    agent_id = Column(Integer,
+                      ForeignKey("users.id", ondelete="SET NULL"))
+    reference = Column(String(30), nullable=False, unique=True)
+    status = Column(String(30), nullable=False, default="confirmed")
+    currency = Column(String(3), nullable=False, default="EUR")
+    travel_start = Column(String(10))
+    travel_end = Column(String(10))
+    lead_passenger = Column(String(200))
+    total_amount = Column(Float, nullable=False, default=0.0)
+    paid_amount = Column(Float, nullable=False, default=0.0)
+    notes = Column(Text)
+    cancelled_at = Column(DateTime(timezone=True))
+    cancellation_reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(), onupdate=func.now())
+
+    items = relationship("BookingItem", back_populates="booking",
+                         cascade="all, delete-orphan",
+                         order_by="BookingItem.position")
+
+    __table_args__ = (
+        Index("ix_bookings_agency_status", "agency_id", "status"),
+        Index("ix_bookings_agent", "agent_id"),
+        Index("ix_bookings_travel", "travel_start"),
+    )
+
+
+class BookingItem(Base):
+    """One booked service, with the supplier reference the traveller
+    will quote at the desk."""
+
+    __tablename__ = "booking_items"
+
+    id = Column(Integer, primary_key=True)
+    booking_id = Column(Integer,
+                        ForeignKey("bookings.id", ondelete="CASCADE"),
+                        nullable=False)
+    quote_item_id = Column(Integer,
+                           ForeignKey("quote_items.id",
+                                      ondelete="SET NULL"))
+    position = Column(Integer, nullable=False, default=0)
+    service_type = Column(String(20), nullable=False)
+    title = Column(String(250), nullable=False)
+    description = Column(Text)
+    supplier = Column(String(120))
+    # PNR, voucher number or confirmation code from the supplier.
+    confirmation_reference = Column(String(120))
+    confirmation_status = Column(String(20), nullable=False,
+                                 default="pending")
+    confirmed_at = Column(DateTime(timezone=True))
+    confirmed_by = Column(Integer,
+                          ForeignKey("users.id", ondelete="SET NULL"))
+    starts_on = Column(String(10))
+    ends_on = Column(String(10))
+    quantity = Column(Integer, nullable=False, default=1)
+    pax = Column(Integer)
+    net_cost = Column(Float, nullable=False, default=0.0)
+    service_charge = Column(Float, nullable=False, default=0.0)
+    vat_rate = Column(Float, nullable=False, default=0.0)
+    is_domestic = Column(Boolean, nullable=False, default=False)
+    details = Column(JSON)
+
+    booking = relationship("Booking", back_populates="items")
+
+    __table_args__ = (
+        Index("ix_booking_items_booking", "booking_id"),
+    )
+
+
+class Document(Base):
+    """An issued voucher, invoice or travel-document pack.
+
+    A cancelled invoice keeps its number and stays in the series; it is
+    never deleted, so the sequence stays gapless and auditable.
+    """
+
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True)
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="CASCADE"),
+                       nullable=False)
+    booking_id = Column(Integer,
+                        ForeignKey("bookings.id", ondelete="SET NULL"))
+    booking_item_id = Column(Integer,
+                             ForeignKey("booking_items.id",
+                                        ondelete="SET NULL"))
+    client_id = Column(Integer,
+                       ForeignKey("clients.id", ondelete="SET NULL"))
+    issued_by = Column(Integer,
+                       ForeignKey("users.id", ondelete="SET NULL"))
+    kind = Column(String(20), nullable=False)   # invoice|voucher|travel
+    series = Column(String(20), nullable=False)
+    number = Column(Integer, nullable=False)
+    full_number = Column(String(40), nullable=False)
+    status = Column(String(20), nullable=False, default="issued")
+    currency = Column(String(3), nullable=False, default="EUR")
+    net_total = Column(Float, nullable=False, default=0.0)
+    service_charge_total = Column(Float, nullable=False, default=0.0)
+    vat_total = Column(Float, nullable=False, default=0.0)
+    gross_total = Column(Float, nullable=False, default=0.0)
+    # Snapshot of names, addresses and lines as issued, so a later
+    # edit to a client or quote cannot rewrite history.
+    payload = Column(JSON)
+    # Reserved for AADE myDATA transmission (not sent by this build).
+    mydata_mark = Column(String(60))
+    mydata_uid = Column(String(80))
+    mydata_status = Column(String(20))
+    cancelled_at = Column(DateTime(timezone=True))
+    cancellation_reason = Column(Text)
+    issued_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("agency_id", "series", "number",
+                         name="uq_document_number"),
+        Index("ix_documents_booking", "booking_id"),
+    )
+
+
+class InvoiceCounter(Base):
+    """Gapless per-agency, per-series numbering.
+
+    Greek invoicing requires a continuous sequence, so the next number
+    is handed out under a row lock and never reused. A cancelled
+    invoice keeps its number and is marked cancelled.
+    """
+
+    __tablename__ = "invoice_counters"
+
+    id = Column(Integer, primary_key=True)
+    agency_id = Column(Integer,
+                       ForeignKey("agencies.id", ondelete="CASCADE"),
+                       nullable=False)
+    series = Column(String(20), nullable=False, default="INV")
+    year = Column(Integer, nullable=False)
+    last_number = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("agency_id", "series", "year",
+                         name="uq_invoice_counter"),
+    )
+
