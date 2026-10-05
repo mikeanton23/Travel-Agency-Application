@@ -1,9 +1,11 @@
 # ==================================================
 # Core Web App
 # ==================================================
-streamlit>=1.47.0
-streamlit-option-menu>=0.4.0
-streamlit-extras>=0.5.0
+# Streamlit is unused: the UI is NiceGUI.
+# streamlit>=1.47.0
+# streamlit-option-menu>=0.4.0
+# streamlit-extras>=0.5.0
+nicegui>=2.0.0
 
 # ==================================================
 # Database
@@ -21,16 +23,15 @@ python-dotenv>=1.1.1
 # HTTP Requests
 # ==================================================
 requests>=2.32.5
-aiohttp>=3.12.15
 httpx>=0.28.1
 urllib3>=2.5.0
+# aiohttp>=3.12.15   # unused: all HTTP goes through httpx
 
 # ==================================================
 # Data Processing
 # ==================================================
 pandas>=2.2.3
 numpy>=2.2.6
-nicegui>=2.0.0
 
 # ==================================================
 # Images
@@ -40,17 +41,19 @@ Pillow>=11.3.0
 # ==================================================
 # AI / LLM
 # ==================================================
-ollama>=0.5.3
 openai>=1.99.5
+# ollama>=0.5.3   # the Ollama provider calls its REST API directly
 
 # ==================================================
-# Optional AI Ecosystem
+# Optional AI Ecosystem - none of these are imported.
+# sentence-transformers pulls torch (~2-3 GB) and exhausts the
+# instance memory limit, which is what was failing every build.
 # ==================================================
-langchain>=0.3.27
-langchain-core>=0.3.74
-langchain-community>=0.3.27
-sentence-transformers>=5.0.0
-faiss-cpu>=1.11.0
+# langchain>=0.3.27
+# langchain-core>=0.3.74
+# langchain-community>=0.3.27
+# sentence-transformers>=5.0.0
+# faiss-cpu>=1.11.0
 
 # ==================================================
 # Geo / Mapping
@@ -105,17 +108,21 @@ scikit-learn>=1.7.1
 scipy>=1.15.3
 
 # ==================================================
+# Documents (vouchers, invoices, travel packs)
+# ==================================================
+reportlab>=4.0
+
+# ==================================================
 # Optional Background Tasks
 # ==================================================
 apscheduler>=3.11.0
 
 # ==================================================
-# Development
+# Development only - not needed in the container
 # ==================================================
-pytest>=8.4.1
-pytest-asyncio>=1.1.0
-black>=25.1.0
-flake8>=7.3.0
-isort>=6.0.1
-mypy>=1.17.1
-reportlab>=4.0
+# pytest>=8.4.1
+# pytest-asyncio>=1.1.0
+# black>=25.1.0
+# flake8>=7.3.0
+# isort>=6.0.1
+# mypy>=1.17.1
