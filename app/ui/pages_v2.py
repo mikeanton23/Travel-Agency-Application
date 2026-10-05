@@ -762,6 +762,9 @@ def chat_page() -> None:
 import app.ui.pages_account  # noqa: E402,F401  (registers routes)
 import app.ui.pages_hotels  # noqa: E402,F401  (registers routes)
 import app.ui.pages_staff  # noqa: E402,F401  (registers routes)
+import app.ui.pages_agency  # noqa: E402,F401  (agency desk)
+import app.ui.pages_agency_ops  # noqa: E402,F401
+import app.ui.pages_agency_quotes  # noqa: E402,F401
 from app.ui.seo_routes import (  # noqa: E402
     register_payment_routes, register_seo_routes,
 )

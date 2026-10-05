@@ -56,7 +56,8 @@ def ensure_schema() -> None:
         logger.warning("Could not inspect the database: %s", exc)
         return
 
-    missing = [t for t in CORE_TABLES if t not in existing]
+    missing = [name for name in Base.metadata.tables
+               if name not in existing]
     if not missing:
         logger.info("Schema present (%d tables)", len(existing))
         return
