@@ -117,5 +117,5 @@ pytest-asyncio>=1.1.0
 black>=25.1.0
 flake8>=7.3.0
 isort>=6.0.1
-mypy>=1.17.1reportlab>=4.0
+mypy>=1.17.1
 reportlab>=4.0
