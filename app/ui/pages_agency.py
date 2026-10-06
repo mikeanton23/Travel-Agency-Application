@@ -11,6 +11,7 @@ manager sees the office.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 
 from nicegui import ui
@@ -24,6 +25,8 @@ from app.ui.agency_common import (
     require_agent, status_chip,
 )
 from app.ui.helpers import safe_clear
+
+log = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
@@ -84,10 +87,15 @@ def agency_desk() -> None:
                             "/agency/clients")).props(
                         "unelevated color=primary no-caps "
                         "icon=sym_r_person_add")
+                    # The lambda returns the coroutine and NiceGUI awaits
+                    # it inside the client context. Wrapping it in
+                    # asyncio.create_task() instead detaches it from that
+                    # context, and ui.navigate.to() then dies with
+                    # "the slot stack for this task is empty".
                     ui.button(
                         "New quote",
-                        on_click=lambda: asyncio.create_task(
-                            _new_quote(user, agency_id))).props(
+                        on_click=lambda: _new_quote(
+                            user, agency_id)).props(
                         "outline no-caps icon=sym_r_note_add")
 
                 ui.label("Recent quotes").classes(
@@ -129,9 +137,25 @@ def _metric(label: str, value: Any, icon: str) -> None:
 
 async def _new_quote(user: Any, agency_id: int,
                      client_id: Optional[int] = None) -> None:
-    created = await asyncio.to_thread(
-        quote_service.create, agency_id, user.id, client_id,
-        "New itinerary")
+    """Create a blank itinerary and open it.
+
+    Must be handed to ``on_click`` as a coroutine, never launched with
+    ``asyncio.create_task``: NiceGUI awaits a handler's result inside the
+    client context, and ``ui.navigate.to`` needs that context to know
+    which browser tab to redirect.
+    """
+    try:
+        created = await asyncio.to_thread(
+            quote_service.create, agency_id, user.id, client_id,
+            "New itinerary")
+    except Exception as exc:
+        # Without this the button simply does nothing and the traceback
+        # only ever appears in the server log.
+        log.exception("could not create quote")
+        ui.notify(
+            f"Could not start a new quote ({type(exc).__name__}).",
+            type="negative")
+        return
     ui.navigate.to(f"/agency/quotes/{created['id']}")
 
 
@@ -205,9 +229,8 @@ def agency_clients() -> None:
                                 ui.label("another agent").classes(
                                     "tv-badge")
 
-        search_in.on("keydown.enter",
-                     lambda: asyncio.create_task(load()))
-        search_in.on("blur", lambda: asyncio.create_task(load()))
+        search_in.on("keydown.enter", load)
+        search_in.on("blur", load)
 
         # ---- add client dialog ----
         add_dialog = ui.dialog()
@@ -271,6 +294,7 @@ def agency_clients() -> None:
                     status.style("color: #dc2626")
                     return
                 except Exception as exc:
+                    log.exception("could not save client")
                     status.set_text(
                         f"Could not save ({type(exc).__name__}).")
                     status.style("color: #dc2626")
@@ -327,11 +351,12 @@ def agency_client_detail(client_id: int) -> None:
                     ui.label(client["full_name"]).classes(
                         "tv-display text-2xl font-semibold")
                     ui.space()
+                    # Same rule as the desk button: hand over the
+                    # coroutine, do not spawn a detached task.
                     ui.button(
                         "New quote for this client",
-                        on_click=lambda: asyncio.create_task(
-                            _new_quote(user, agency_id,
-                                       client["id"]))).props(
+                        on_click=lambda cid=client["id"]: _new_quote(
+                            user, agency_id, cid)).props(
                         "unelevated color=primary no-caps "
                         "icon=sym_r_note_add")
 

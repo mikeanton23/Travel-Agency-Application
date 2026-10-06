@@ -24,7 +24,16 @@ AGENCY_NAV = [
     ("Quotes", "/agency/quotes", "sym_r_request_quote"),
     ("Bookings", "/agency/bookings", "sym_r_confirmation_number"),
     ("Cash", "/agency/cash", "sym_r_payments"),
+    ("Reports", "/agency/reports", "sym_r_insights"),
 ]
+
+#: Routes the counter never sees. Accounting, profits and office-wide
+#: figures belong to the owner/manager; staff keep bookings, vouchers,
+#: documents and their own client book.
+#:
+#: Hiding the link is courtesy, not security - the page itself redirects
+#: and :mod:`app.services.agency.reporting` refuses the data regardless.
+MANAGER_ONLY_ROUTES = {"/agency/reports"}
 
 SERVICE_ICONS = {
     "hotel": "sym_r_hotel",
@@ -41,6 +50,9 @@ class CurrentUser:
     The access rules only need ``id``, ``role`` and ``is_admin``, so
     the session dictionary is wrapped rather than hitting the database
     on every permission check.
+
+    ``role`` is the exception: :func:`current_agent` always re-reads it
+    from the database. See the note there.
     """
 
     def __init__(self, data: Dict[str, Any]) -> None:
@@ -48,9 +60,9 @@ class CurrentUser:
         self.email = data.get("email")
         self.display_name = data.get("display_name") or data.get("email")
         self.is_admin = bool(data.get("is_admin"))
+        self.agency_id = data.get("agency_id")
         self.role = data.get("role") or (
             "admin" if self.is_admin else "agent")
-        self.agency_id = data.get("agency_id")
 
     @property
     def is_manager(self) -> bool:
@@ -58,15 +70,20 @@ class CurrentUser:
 
 
 def current_agent() -> Optional[CurrentUser]:
-    """The signed-in user, or None."""
+    """The signed-in user, or None.
+
+    The role is always re-read from the database rather than trusted
+    from the session. A session is written once at sign-in and never
+    updated, so a promotion or a demotion would otherwise take effect
+    only when that person next happened to log out - a promoted manager
+    silently sees nothing, and a demoted agent keeps their access. That
+    is worth one primary-key lookup per page render, which is noise next
+    to the quote and booking queries each page already runs.
+    """
     data = app.storage.user.get("auth")
     if not data or not data.get("user_id"):
         return None
-    user = CurrentUser(data)
-    if user.agency_id is None or "role" not in data:
-        # Older sessions predate the agency fields; top them up once.
-        user = _refresh_from_database(user)
-    return user
+    return _refresh_from_database(CurrentUser(data))
 
 
 def _refresh_from_database(user: CurrentUser) -> CurrentUser:
@@ -82,10 +99,13 @@ def _refresh_from_database(user: CurrentUser) -> CurrentUser:
                 user.agency_id = getattr(row, "agency_id", None)
                 user.is_admin = bool(row.is_admin)
                 data = dict(app.storage.user.get("auth") or {})
-                data.update({"role": user.role,
-                             "agency_id": user.agency_id,
-                             "is_admin": user.is_admin})
-                app.storage.user["auth"] = data
+                if (data.get("role") != user.role
+                        or data.get("agency_id") != user.agency_id
+                        or data.get("is_admin") != user.is_admin):
+                    data.update({"role": user.role,
+                                 "agency_id": user.agency_id,
+                                 "is_admin": user.is_admin})
+                    app.storage.user["auth"] = data
         finally:
             session.close()
     except Exception:
@@ -135,6 +155,14 @@ def ensure_agency(user: CurrentUser) -> Optional[int]:
     return user.agency_id
 
 
+def nav_for(user: CurrentUser):
+    """The navigation this user is allowed to see."""
+    if user.is_manager:
+        return AGENCY_NAV
+    return [entry for entry in AGENCY_NAV
+            if entry[1] not in MANAGER_ONLY_ROUTES]
+
+
 @contextmanager
 def agency_shell(title: str, user: CurrentUser):
     """The back-office frame: its own nav, clearly not the public site."""
@@ -164,7 +192,7 @@ def agency_shell(title: str, user: CurrentUser):
     ) as drawer:
         ui.label("AGENCY DESK").classes("tv-eyebrow px-3 pt-1 pb-2") \
             .style("color: var(--tv-teal)")
-        for label, target, icon in AGENCY_NAV:
+        for label, target, icon in nav_for(user):
             ui.button(label,
                       on_click=lambda t=target: ui.navigate.to(t)) \
                 .props(f"flat align=left icon={icon} no-caps") \
@@ -184,6 +212,7 @@ def agency_shell(title: str, user: CurrentUser):
 
 
 def money_label(amount: Any, currency: str = "EUR") -> str:
+    """Format an amount. Returns a string - it does not create an element."""
     try:
         return f"{float(amount):,.2f} {currency}"
     except (TypeError, ValueError):

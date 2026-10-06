@@ -66,12 +66,9 @@ def _cell(value: Any, money: bool = False, suffix: str = "") -> None:
         ui.label("unavailable").style("color: #94a3b8; font-style: italic")
         return
     if money:
-        try:
-            money_label(value)
-            return
-        except Exception:  # pragma: no cover - helper signature differs
-            ui.label(f"{float(value):,.2f}")
-            return
+        # money_label() returns a string; it does not create an element.
+        ui.label(money_label(value))
+        return
     ui.label(f"{value}{suffix}")
 
 
@@ -330,7 +327,7 @@ async def agency_reports_page() -> None:
             ui.label("Quote conversion").style("font-weight: 600; font-size: 1.05rem")
             _conversion_table(data.get("conversion") or {})
 
-    with agency_shell("Reports", user):
+    with agency_shell(user, "Reports"):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-0"):
                 ui.label("Reports").style("font-size: 1.5rem; font-weight: 700")
