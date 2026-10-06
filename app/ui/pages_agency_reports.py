@@ -330,7 +330,7 @@ async def agency_reports_page() -> None:
             ui.label("Quote conversion").style("font-weight: 600; font-size: 1.05rem")
             _conversion_table(data.get("conversion") or {})
 
-    with agency_shell(user, "Reports"):
+    with agency_shell("Reports", user):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-0"):
                 ui.label("Reports").style("font-size: 1.5rem; font-weight: 700")
