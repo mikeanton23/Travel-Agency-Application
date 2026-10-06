@@ -16,6 +16,7 @@ Every number rendered here is real API/database data or an explicit
 from __future__ import annotations
 
 import asyncio
+import app.ui.pages_agency_reports
 from datetime import date, datetime, timedelta
 from typing import Optional
 
