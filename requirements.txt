@@ -11,7 +11,7 @@ nicegui>=2.0.0
 # Database
 # ==================================================
 sqlalchemy>=2.0.43
-psycopg2-binary>=2.9.10
+psycopg[binary]>=3.2.0
 alembic>=1.16.4
 
 # ==================================================
@@ -47,7 +47,7 @@ openai>=1.99.5
 # ==================================================
 # Optional AI Ecosystem - none of these are imported.
 # sentence-transformers pulls torch (~2-3 GB) and exhausts the
-# instance memory limit, which is what was failing every build.
+# instance memory limit, which was causing the build to fail.
 # ==================================================
 # langchain>=0.3.27
 # langchain-core>=0.3.74
