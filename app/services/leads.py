@@ -7,6 +7,11 @@ Covers: validating and persisting a "beat this price" request,
 notifying both customer and sales inbox, staff preparing an offer with
 a secure token, sending it, and recording funnel events.
 
+A new request reaches the desk two ways -- an email to the sales inbox
+and a notification on every staff member's bell. Either can fail on its
+own (a filtered inbox, a database hiccup) without the request going
+unseen.
+
 A competitor price supplied by the customer is stored as
 ``source_type="customer_reported"`` -- it is evidence for the sales
 team, never grounds for a public "cheaper than X" claim.
@@ -22,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.services.email_service import (
     EmailMessageData, email_service, valid_email,
 )
+from app.services.notifications import notification_service
 from app.services.offer_tokens import generate_token
 from app.utils.rate_limit import RateLimiter
 from app.utils.settings import get_settings
@@ -31,6 +37,14 @@ logger = logging.getLogger(__name__)
 lead_limiter = RateLimiter()
 LEAD_LIMIT = 5
 LEAD_WINDOW_S = 3600.0
+
+#: Where the bell sends an agent who clicks a new-request notification.
+#: ``/agency`` is the desk itself; point this at the staff leads screen
+#: if that page has a route of its own.
+DESK_REQUEST_PATH = "/agency"
+
+#: Where a customer lands after signing in from the email we send them.
+CUSTOMER_PORTAL_PATH = "/account"
 
 STATUSES = [
     "new", "pending", "in_negotiation", "offer_prepared", "offer_sent",
@@ -51,13 +65,32 @@ def session_hash(raw: str) -> str:
     ).hexdigest()[:32]
 
 
+def portal_link(path: str = CUSTOMER_PORTAL_PATH) -> Optional[str]:
+    """An absolute sign-in link back into the app, or None.
+
+    Returns None when ``APP_BASE_URL`` still points at localhost, rather
+    than mailing a customer a link to their own machine. A missing link
+    is better than a broken one, and the warning says what to fix.
+    """
+    base = (get_settings().app_base_url or "").rstrip("/")
+    if not base or "localhost" in base or "127.0.0.1" in base:
+        logger.warning(
+            "APP_BASE_URL is %r - omitting the portal link from customer "
+            "email. Set it to the public https:// address.", base or "")
+        return None
+    from urllib.parse import quote
+
+    return f"{base}/login?next={quote(path, safe='/')}"
+
+
 class LeadService:
     def __init__(
         self, session_factory: Optional[Callable[[], Any]] = None,
-        emailer=None,
+        emailer=None, notifier=None,
     ) -> None:
         self._session_factory = session_factory
         self._emailer = emailer or email_service
+        self._notifier = notifier or notification_service
 
     def _sessions(self) -> Callable[[], Any]:
         if self._session_factory is None:
@@ -130,6 +163,8 @@ class LeadService:
                 "destination": lead.destination,
                 "check_in": lead.check_in,
                 "check_out": lead.check_out,
+                "competitor_price": lead.competitor_price,
+                "currency": lead.currency,
                 "status": lead.status,
             }
         finally:
@@ -138,6 +173,7 @@ class LeadService:
         self._record_event(request_id=payload["id"],
                            event="offer_request_created")
         self._notify_new_request(payload)
+        self._notify_desk(payload)
         return payload
 
     def _notify_new_request(self, lead: Dict[str, Any]) -> None:
@@ -146,6 +182,13 @@ class LeadService:
             stay = f"\nDates: {lead['check_in']} -> {lead['check_out']}"
         subject_where = lead.get("hotel_name") or \
             lead.get("destination") or "your stay"
+
+        link = portal_link()
+        follow_up = (
+            f"\nYou can follow this request in your account:\n{link}\n"
+            "Sign in with the email and password you already use here.\n"
+            if link else ""
+        )
 
         self._emailer.send(EmailMessageData(
             to_email=lead["customer_email"],
@@ -160,7 +203,8 @@ class LeadService:
                 "and get back to you. If we can't beat the price you "
                 "found, we'll tell you that plainly rather than waste "
                 "your time.\n\n"
-                f"Reference: #{lead['id']}\n\n"
+                f"Reference: #{lead['id']}\n"
+                f"{follow_up}\n"
                 f"{get_settings().site_name}"
             ),
         ))
@@ -183,6 +227,59 @@ class LeadService:
                     "Open the admin dashboard to prepare an offer."
                 ),
             ))
+        else:
+            # Silence here used to mean nobody was told. Say so.
+            logger.warning(
+                "SALES_INBOX_EMAIL is not set - request #%s was not "
+                "emailed to the desk (the in-app notification still "
+                "fired).", lead["id"])
+
+    def _notify_desk(self, lead: Dict[str, Any]) -> None:
+        """Put the request on every staff member's bell.
+
+        Deliberately separate from the email: this is the half that
+        still works when mail is misconfigured, which is exactly the
+        situation it exists for.
+        """
+        where = lead.get("hotel_name") or lead.get("destination") \
+            or "a stay"
+        detail = [f"{lead['customer_name']} <{lead['customer_email']}>"]
+        if lead.get("check_in") and lead.get("check_out"):
+            detail.append(f"{lead['check_in']} to {lead['check_out']}")
+        if lead.get("competitor_price"):
+            detail.append(
+                f"found {lead['competitor_price']:.2f} "
+                f"{lead.get('currency') or 'EUR'} elsewhere")
+
+        try:
+            told = self._notifier.notify_staff(
+                title=f"New offer request -- {where}",
+                body=" | ".join(detail),
+                kind="offer_request",
+                link=f"{DESK_REQUEST_PATH}?request={lead['id']}",
+            )
+            logger.info("request #%s notified %s staff member(s)",
+                        lead["id"], told)
+        except Exception as exc:   # pragma: no cover - defensive
+            logger.warning("desk notification failed for #%s: %s",
+                           lead["id"], exc)
+
+        # If the customer already has an account, give them the same
+        # message in the app, so the link in their email lands on
+        # something.
+        try:
+            customer_id = self._notifier.user_id_for_email(
+                lead["customer_email"])
+            if customer_id:
+                self._notifier.create(
+                    user_id=customer_id,
+                    title=f"Request #{lead['id']} received -- {where}",
+                    body="We're checking rates and will reply shortly.",
+                    kind="offer_request",
+                    link=CUSTOMER_PORTAL_PATH,
+                )
+        except Exception as exc:   # pragma: no cover - defensive
+            logger.debug("customer notification skipped: %s", exc)
 
     # ------------------------------------------------------------------
     # Staff side
@@ -295,6 +392,21 @@ class LeadService:
             self._record_event(offer_id=prepared["offer_id"],
                                request_id=prepared["request_id"],
                                event="offer_email_sent")
+        else:
+            # The agent pressed send and it did not go. Make sure that
+            # reaches them rather than only the log.
+            try:
+                self._notifier.notify_staff(
+                    title=f"Offer email failed -- request "
+                          f"#{prepared['request_id']}",
+                    body=(result.get("error")
+                          or "The provider rejected the message."),
+                    kind="warning",
+                    link=f"{DESK_REQUEST_PATH}?request="
+                         f"{prepared['request_id']}",
+                )
+            except Exception:  # pragma: no cover - defensive
+                pass
         return result
 
     def set_status(self, request_id: int, status: str,

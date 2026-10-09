@@ -148,6 +148,20 @@ class EmailService:
                              False, "invalid recipient address")
         s = get_settings()
         transport = self.transport()
+
+        # A console "send" is not a send. Falling back to it in
+        # production means SMTP_HOST is missing from the environment,
+        # and recording that as a success is how a month of offer
+        # requests can vanish while the UI reports every one as mailed.
+        if transport.name == "console" and s.app_env == "production":
+            logger.error(
+                "Email not sent (kind=%s): SMTP is not configured. "
+                "Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD and "
+                "SMTP_FROM_EMAIL in the environment.", message.kind)
+            return self._log(
+                message, "console", False,
+                "SMTP is not configured - no mail was sent")
+
         try:
             transport.send(message, s.smtp_from_email or "noreply@localhost",
                            s.smtp_from_name or "Aevyra")
@@ -183,6 +197,30 @@ class EmailService:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("email_log write skipped: %s", exc)
         return {"success": success, "error": error, "provider": provider}
+
+    # ------------------------------------------------------------------
+
+    def self_test(self, to_email: str) -> Dict[str, Any]:
+        """Send a probe message and report exactly what happened.
+
+        Exists so "is email working?" has a one-line answer instead of
+        requiring someone to submit a real lead and then go digging
+        through ``email_log``.
+        """
+        s = get_settings()
+        return self.send(EmailMessageData(
+            to_email=to_email,
+            subject=f"{s.site_name} email self-test",
+            kind="self_test",
+            text_body=(
+                "This is a delivery test from "
+                f"{s.site_name}.\n\n"
+                "If you are reading it, outbound mail works: "
+                f"host={s.smtp_host or '(unset)'} "
+                f"port={s.smtp_port} "
+                f"from={s.smtp_from_email or '(unset)'}\n"
+            ),
+        ))
 
 
 email_service = EmailService()

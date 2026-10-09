@@ -131,7 +131,7 @@ class TravelPlan(Base):
     )
 
 # ==========================================================
-# PHASE 2 – API CACHE (persistent tier of cache_service)
+# PHASE 2 - API CACHE (persistent tier of cache_service)
 # ==========================================================
 
 
@@ -163,7 +163,7 @@ class ApiCache(Base):
 
 
 # ==========================================================
-# PHASE 1 – NORMALIZED SCHEMA
+# PHASE 1 - NORMALIZED SCHEMA
 # ==========================================================
 # Geo hierarchy, users, trips, favorites, reviews, events,
 # encrypted API keys, AI conversations, weather cache.
@@ -327,7 +327,7 @@ class User(Base):
     favorites = relationship("Favorite", back_populates="user",
                              cascade="all, delete-orphan")
 
-    role = Column(String(20), nullable=False, default="agent")
+    role = Column(String(20), nullable=False, default="customer")
     agency_id = Column(Integer,
                        ForeignKey("agencies.id", ondelete="SET NULL"))
     phone = Column(String(60))
@@ -525,7 +525,7 @@ class AiMessage(Base):
 
 
 # ==========================================================
-# PHASE 3 – RAG KNOWLEDGE BASE
+# PHASE 3 - RAG KNOWLEDGE BASE
 # ==========================================================
 
 
@@ -583,12 +583,12 @@ class KbChunk(Base):
 
 
 # ==========================================================
-# PHASE 5 – MONITORING & NOTIFICATIONS
+# PHASE 5 - MONITORING & NOTIFICATIONS
 # ==========================================================
 
 
 class ApiUsageLog(Base):
-    """One row per outbound API call — the admin dashboard's raw data.
+    """One row per outbound API call - the admin dashboard's raw data.
 
     Written best-effort by the metrics recorder hooked into
     ``HttpJsonClient``; requests never fail because logging failed.
@@ -619,6 +619,10 @@ class Notification(Base):
     kind = Column(String(30), nullable=False, default="info")
     title = Column(String(250), nullable=False)
     body = Column(Text)
+    # Where the bell sends someone who clicks this, e.g.
+    # "/agency?request=42". Relative so it works on localhost and in
+    # production without rewriting stored rows.
+    link = Column(String(250))
     read_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -628,14 +632,14 @@ class Notification(Base):
 
 
 # ==========================================================
-# HOTEL ACQUISITION — inventory, offers, leads, payments
+# HOTEL ACQUISITION - inventory, offers, leads, payments
 # ==========================================================
 # Additive: the existing Hotel model (Phase 1) is unchanged and is
 # referenced by these tables.
 
 
 class HotelProvider(Base):
-    """A configured hotel supplier (amadeus, hotelbeds, expedia…)."""
+    """A configured hotel supplier (amadeus, hotelbeds, expedia...)."""
 
     __tablename__ = "hotel_providers"
 
@@ -681,7 +685,7 @@ class HotelOffer(Base):
     supplier = Column(String(40), nullable=False)
     room_id = Column(String(120))
     room_name = Column(String(200))
-    board_type = Column(String(40))        # room_only/breakfast/half…
+    board_type = Column(String(40))        # room_only/breakfast/half...
     occupancy = Column(Integer, nullable=False, default=2)
     check_in = Column(String(10), nullable=False)   # ISO date
     check_out = Column(String(10), nullable=False)

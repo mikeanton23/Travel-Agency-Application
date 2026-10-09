@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from nicegui import ui
 
+from app.ui.components.notification_bell import notification_bell
 from app.ui.theme import apply_theme, theme_toggle
 
 NAV = [
@@ -59,6 +60,7 @@ def page_shell(title: str):
         )
         ui.space()
         _session_button()
+        notification_bell()
         theme_toggle(dark)
 
     with ui.left_drawer(value=True).classes("tv-glass p-3").props(
@@ -74,7 +76,7 @@ def page_shell(title: str):
                 "tv-nav-item w-full justify-start font-medium"
             )
         ui.space()
-        ui.label("Real data only — nothing estimated").classes(
+        ui.label("Real data only - nothing estimated").classes(
             "tv-mono text-[10px] tv-muted px-3 pb-1"
         )
 

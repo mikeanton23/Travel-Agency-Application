@@ -15,7 +15,8 @@ from typing import Any, Dict, Optional
 
 from nicegui import app, ui
 
-from app.services.agency.access import role_of, sees_whole_office
+from app.services.agency.access import is_staff, role_of, sees_whole_office
+from app.ui.components.notification_bell import notification_bell
 from app.ui.theme import apply_theme, theme_toggle
 
 AGENCY_NAV = [
@@ -61,8 +62,12 @@ class CurrentUser:
         self.display_name = data.get("display_name") or data.get("email")
         self.is_admin = bool(data.get("is_admin"))
         self.agency_id = data.get("agency_id")
+        # Falls back to customer, never to agent. _refresh_from_database
+        # swallows errors so a stale session cannot break the page - and
+        # an "agent" default would mean a database hiccup silently handed
+        # out back-office access on the very path written to survive it.
         self.role = data.get("role") or (
-            "admin" if self.is_admin else "agent")
+            "admin" if self.is_admin else "customer")
 
     @property
     def is_manager(self) -> bool:
@@ -114,10 +119,18 @@ def _refresh_from_database(user: CurrentUser) -> CurrentUser:
 
 
 def require_agent() -> Optional[CurrentUser]:
-    """Guard for every agency page."""
+    """Guard for every agency page.
+
+    Being signed in is not a permission. The public site and the office
+    share one user table, so a registered customer reaches this with a
+    perfectly valid session - they are sent back to the public site.
+    """
     user = current_agent()
     if user is None:
         ui.navigate.to("/login")
+        return None
+    if not is_staff(user):
+        ui.navigate.to("/")
         return None
     return user
 
@@ -185,6 +198,7 @@ def agency_shell(title: str, user: CurrentUser):
             "tv-mono text-xs tv-muted hidden sm:block")
         ui.button(on_click=lambda: ui.navigate.to("/")).props(
             "flat round icon=sym_r_public").tooltip("Public site")
+        notification_bell()
         theme_toggle(dark)
 
     with ui.left_drawer(value=True).classes("tv-glass p-3").props(
