@@ -76,9 +76,14 @@ def notification_bell() -> None:
 
     state: Dict[str, Any] = {"unread": 0}
 
+    # The glyph is an explicit child, not the q-btn `icon=` prop: a
+    # button carrying its own default-slot content (the badge and the
+    # menu below) can swallow that prop and render an empty circle.
     with ui.button(on_click=lambda: menu.open()).props(
-        "flat round icon=sym_r_notifications"
+        "flat round"
     ).tooltip("Notifications") as bell:
+
+        glyph = ui.icon("sym_r_notifications")
 
         badge = ui.badge("").props("floating color=red").style(
             "display: none")
@@ -164,11 +169,11 @@ def notification_bell() -> None:
         if unread > 0:
             badge.set_text(str(unread) if unread < 100 else "99+")
             badge.style("display: block")
-            bell.props("color=primary")
+            glyph.style("color: var(--tv-teal)")
         else:
             badge.set_text("")
             badge.style("display: none")
-            bell.props(remove="color=primary")
+            glyph.style("color: inherit")
 
     async def _mark_all() -> None:
         await asyncio.to_thread(notification_service.mark_all_read, user_id)
