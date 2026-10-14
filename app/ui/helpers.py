@@ -117,3 +117,32 @@ def looks_like_property_name(query: str) -> bool:
         "apartments", "guesthouse", "residence", "spa", "villa",
     }
     return bool(set(words) & markers)
+
+
+def spawn(coro) -> None:
+    """Run a coroutine with the calling client's slot stack in place.
+
+    ``asyncio.create_task`` detaches the coroutine from the request that
+    started it. NiceGUI then has no client context, so ``ui.notify``,
+    ``ui.navigate.to``, ``ui.download`` and any element creation outside
+    an explicit ``with container:`` raise "the slot stack for this task
+    is empty". The failure is silent in the browser - the task dies, its
+    exception is never retrieved, and the button simply does nothing.
+
+    Capturing the client here and re-entering it inside the task keeps
+    every UI call working.
+    """
+    from nicegui import background_tasks, ui
+
+    try:
+        client = ui.context.client
+    except RuntimeError:
+        import asyncio
+        asyncio.create_task(coro)
+        return
+
+    async def _run() -> None:
+        with client:
+            await coro
+
+    background_tasks.create(_run())

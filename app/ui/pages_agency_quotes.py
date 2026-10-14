@@ -25,7 +25,7 @@ from app.ui.agency_common import (
     SERVICE_ICONS, agency_shell, ensure_agency, money_label,
     require_agent, status_chip,
 )
-from app.ui.helpers import safe_clear
+from app.ui.helpers import safe_clear, spawn
 
 TICKET_KINDS = {
     "air": "Air",
@@ -103,7 +103,7 @@ def agency_quotes() -> None:
                                 "tv-mono text-sm font-semibold")
 
         status_filter.on_value_change(
-            lambda _: asyncio.create_task(load()))
+            lambda _: spawn(load()))
         ui.timer(0.1, load, once=True)
 
 
@@ -154,13 +154,13 @@ def agency_quote_detail(quote_id: int) -> None:
                             ui.button(
                                 target.title(),
                                 on_click=lambda t=target:
-                                    asyncio.create_task(
+                                    spawn(
                                         set_status(t))).props(
                                 "flat dense no-caps")
                         ui.space()
                         ui.button(
                             "Convert to booking",
-                            on_click=lambda: asyncio.create_task(
+                            on_click=lambda: spawn(
                                 to_booking())).props(
                             "unelevated color=primary dense no-caps "
                             "icon=sym_r_confirmation_number")

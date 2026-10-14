@@ -38,6 +38,7 @@ from app.ui.components.cards import destination_card, skeleton_card
 from app.ui.components.chat_panel import chat_panel
 from app.ui.components.layout import page_shell
 from app.ui.helpers import (
+    spawn,
     client_gone, element_alive, safe_clear,
 )
 from app.ui.components.score_panel import score_panel
@@ -262,7 +263,7 @@ def explore_page() -> None:
 
                 with ui.row().classes("w-full gap-2 pt-2"):
                     ui.button("Apply",
-                              on_click=lambda: asyncio.create_task(
+                              on_click=lambda: spawn(
                                   run_search(reset_offset=True))).props(
                         "unelevated color=primary dense no-caps "
                         "icon=sym_r_filter_alt").classes("flex-grow")
@@ -287,20 +288,20 @@ def explore_page() -> None:
                     with_kids.set_value(False)
                     sort_select.set_value("AI score")
                     _sync_when()
-                    asyncio.create_task(run_search())
+                    spawn(run_search())
 
                 # Dynamic: any change re-runs the search.
                 for widget in (continent_select, month_select,
                                interests_select, travel_style,
                                sort_select, with_kids, budget_currency):
                     widget.on_value_change(
-                        lambda _: asyncio.create_task(
+                        lambda _: spawn(
                             run_search(reset_offset=True)))
                 for widget in (country_input, name_input,
                                budget_max, rain_max, temp_min,
                                temp_max):
                     widget.on("blur",
-                              lambda _: asyncio.create_task(
+                              lambda _: spawn(
                                   run_search(reset_offset=True)))
 
                 _sync_when()
@@ -510,7 +511,7 @@ def explore_page() -> None:
                     ):
                         ui.button(
                             "Show more places",
-                            on_click=lambda: asyncio.create_task(
+                            on_click=lambda: spawn(
                                 show_more()),
                         ).props("outline no-caps "
                                 "icon=sym_r_expand_more")
@@ -538,7 +539,7 @@ def explore_page() -> None:
                                 d, "id", None)
                             else hotels_city_path(d.name, d.country)
                         ),
-                        on_score=lambda: asyncio.create_task(
+                        on_score=lambda: spawn(
                             load_score()
                         ),
                     )
@@ -576,7 +577,7 @@ def explore_page() -> None:
                     draw()
 
             draw()
-            asyncio.create_task(load_media_and_badges())
+            spawn(load_media_and_badges())
 
         search_button.on_click(run_search)
         nl_input.on("keydown.enter", run_search)
@@ -691,7 +692,7 @@ def destination_page(destination_id: int) -> None:
                 with score_holder:
                     ui.button(
                         "Compute Travel Intelligence Score",
-                        on_click=lambda: asyncio.create_task(
+                        on_click=lambda: spawn(
                             load_score()
                         ),
                     ).props("unelevated color=primary icon=insights")

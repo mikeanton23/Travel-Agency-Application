@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 
+from app.ui.helpers import spawn
 from nicegui import ui
 
 from app.services.analytics import analytics
@@ -128,7 +129,7 @@ def admin_requests_page() -> None:
                 ["all"] + STATUSES, value="all", label="Status",
             ).props("dense outlined").classes("w-56")
             ui.button("Refresh",
-                      on_click=lambda: asyncio.create_task(refresh())
+                      on_click=lambda: spawn(refresh())
                       ).props("flat no-caps icon=sym_r_refresh")
 
         queue = ui.column().classes("w-full gap-2")
@@ -149,7 +150,7 @@ def admin_requests_page() -> None:
                     render_request(row)
 
         status_filter.on_value_change(
-            lambda _: asyncio.create_task(refresh()))
+            lambda _: spawn(refresh()))
 
         def render_request(row: Dict[str, Any]) -> None:
             with ui.card().classes("tv-glass w-full p-4 gap-2"):

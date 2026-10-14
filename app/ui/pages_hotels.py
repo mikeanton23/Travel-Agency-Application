@@ -38,6 +38,7 @@ from app.services.seo import (
 )
 from app.ui.components.layout import page_shell
 from app.ui.helpers import (
+    spawn,
     client_gone, element_alive, looks_like_property_name,
     name_relevance, safe_clear,
 )
@@ -561,7 +562,7 @@ def rates_freshness_bar(result, on_refresh, auto_state: Dict) -> None:
             if auto_state.get("on", True) and not auto_state.get(
                     "refreshing"):
                 auto_state["refreshing"] = True
-                asyncio.create_task(on_refresh())
+                spawn(on_refresh())
             return
         age_label.set_text(
             f"retrieved {age // 60}m {age % 60}s ago - valid for "

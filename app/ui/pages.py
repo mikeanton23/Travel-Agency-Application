@@ -4,6 +4,7 @@ import asyncio
 import random
 import traceback
 
+from app.ui.helpers import spawn
 from nicegui import ui
 
 from app.services.comparison_service import build_destination_comparison
@@ -1643,7 +1644,7 @@ def home_page():
                             spinner.visible = False
                             spinner.update()
 
-                    ui.timer(0.3, lambda: asyncio.create_task(load_plan()), once=True)
+                    ui.timer(0.3, lambda: spawn(load_plan()), once=True)
 
                     with ui.row().classes("justify-end w-full mt-5"):
                         ui.button("Close", on_click=dialog.close).classes("dark-btn px-6 py-3")
